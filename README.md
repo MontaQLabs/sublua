@@ -1,3 +1,5 @@
+<img src="https://github.com/user-attachments/assets/176ee468-6acb-43e5-8792-c16ff2ecd2d0" alt="SubLua SDK Logo Design" width="300">
+
 # SubLua - Substrate SDK for Lua
 
 A development SDK that brings Substrate blockchain functionality to Lua through FFI bindings.
