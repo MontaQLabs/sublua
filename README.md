@@ -173,6 +173,20 @@ Lua is lightweight, embeddable, and widely used in:
 
 SubLua makes Substrate accessible to these ecosystems without requiring developers to learn Rust or JavaScript.
 
+## The Need for SubLua
+
+Before SubLua, integrating Substrate chains with Lua-based applications required complex workarounds or learning entirely new languages. This created a barrier for:
+
+**Game Developers**: Popular game engines like LÖVE2D, Defold, and Corona SDK use Lua for scripting. Game developers wanting to add blockchain features (player-owned assets, token rewards, leaderboards) had no direct path to Substrate chains.
+
+**Roblox Developers**: While Roblox uses Luau (not standard Lua), the concepts are similar. SubLua's HTTP proxy architecture could enable Roblox games to interact with Substrate chains through external services.
+
+**IoT and Embedded Systems**: Many IoT devices and embedded systems use Lua for configuration and scripting (OpenWrt, NodeMCU, etc.). SubLua enables these devices to participate in Substrate networks for micropayments, data verification, or device authentication.
+
+**Existing Lua Applications**: Millions of applications already use Lua - from web servers (OpenResty) to network equipment. SubLua lets these systems integrate blockchain functionality without major rewrites.
+
+SubLua opens up the entire Substrate ecosystem to these use cases, enabling new types of applications that bridge traditional software with blockchain capabilities.
+
 ## Contributing
 
 This is early-stage development. Areas that need work:
