@@ -170,6 +170,12 @@ This is a **development SDK** - it works for basic use cases but needs more work
 - Performance optimization
 - More complete documentation
 
+## Example: DOT Catcher game in LOVE2D
+
+![Screenshot From 2025-06-08 04-26-30](https://github.com/user-attachments/assets/cb1db54b-4c0a-40c6-9a7b-f200da78f6c8)
+
+![Screenshot From 2025-06-08 04-26-09](https://github.com/user-attachments/assets/82969351-cf52-4c5f-a7b1-789a0d070392)
+
 ## Example: Complete Transfer
 
 See `example_game.lua` for a full working example that:
