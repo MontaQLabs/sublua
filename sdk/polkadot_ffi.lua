@@ -1,4 +1,4 @@
--- sdk/ffi.lua
+-- sdk/polkadot_ffi.lua
 -- Centralised FFI binding for the Polkadot SDK
 -- Tries several strategies to locate and load the compiled Rust shared object.
 
@@ -43,6 +43,7 @@ ffi.cdef[[
         bool era_mortal,
         uint8_t era_period,
         uint8_t era_phase,
+        uint32_t transaction_version,
         uint8_t** out_ptr,
         size_t* out_len);
 

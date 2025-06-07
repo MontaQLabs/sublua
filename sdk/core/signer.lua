@@ -1,6 +1,6 @@
 -- sdk/core/signer.lua
 
-local ffi_mod = require("sdk.ffi")
+local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
 local lib  = ffi_mod.lib
 local util = require("sdk.core.util")

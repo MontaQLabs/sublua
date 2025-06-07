@@ -111,6 +111,7 @@ pub extern "C" fn encode_signed_extrinsic(
     era_mortal: bool,
     era_period: u8,
     era_phase: u8,
+    transaction_version: u32,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
 ) -> i32 {
@@ -158,22 +159,26 @@ pub extern "C" fn encode_signed_extrinsic(
             tip: ScaleCompact(tip),
         };
 
-        // FIXED: Build transaction with version byte first, then extrinsic data
-        // The structure should be: [version_byte][signature][call]
-        let mut final_tx = vec![0x84]; // Version 4 with signed bit (0x80 | 0x04)
+        // FIXED: Use proper ExtrinsicV4 structure instead of manual encoding
+        let extrinsic_v4 = ExtrinsicV4 {
+            signature: Some(signature_payload),
+            function: call,
+        };
 
-        // Manually encode the signature and call parts
-        // Signature part: MultiAddress + MultiSignature + Era + Nonce + Tip
-        final_tx.extend_from_slice(&signature_payload.encode());
+        // Encode the complete extrinsic using SCALE codec
+        let mut extrinsic_bytes = extrinsic_v4.encode();
 
-        // Call part: module_index + function_index + arguments
-        final_tx.push(module_index);
-        final_tx.push(function_index);
-        final_tx.extend_from_slice(arguments);
+        // FIXED: Use the correct transaction version instead of hardcoded 0x84
+        // The version byte format is: 0x80 | (transaction_version & 0x7F)
+        // For signed extrinsics, we set the high bit (0x80)
 
-        // Add length prefix
-        let mut output = ScaleCompact(final_tx.len() as u32).encode();
-        output.extend_from_slice(&final_tx);
+        let version_byte = 0x80 | ((transaction_version as u8) & 0x7F);
+
+        let mut final_tx = vec![version_byte];
+        final_tx.append(&mut extrinsic_bytes);
+
+        // Don't add length prefix - working transactions don't have it
+        let output = final_tx;
 
         // copy to C
         let boxed = output.into_boxed_slice();

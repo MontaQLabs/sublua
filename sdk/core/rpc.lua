@@ -87,6 +87,8 @@ end
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 
+local metadata = require("sdk.core.metadata")
+
 local RPC = {}
 
 function RPC.new(url)
@@ -296,7 +298,7 @@ end
 
 -- Helper function to convert SS58 address to AccountId32 (public key)
 local function ss58_to_account_id(ss58_address)
-    local ffi_module = require('sdk.ffi')
+    local ffi_module = require('sdk.polkadot_ffi')
     local ffi = ffi_module.ffi
     local lib = ffi_module.lib
     
@@ -322,7 +324,7 @@ function RPC:get_account_info(address)
     end
     
     -- Get FFI access for blake2_128 hashing
-    local ffi_module = require('sdk.ffi')
+    local ffi_module = require('sdk.polkadot_ffi')
     local ffi = ffi_module.ffi
     local lib = ffi_module.lib
     
@@ -454,6 +456,29 @@ function RPC:decode_account_info(hex_data)
             token_decimals = properties.decimals
         }
     }
+end
+
+-- Runtime metadata methods
+function RPC:state_getMetadata(at_block)
+    local params = at_block and {at_block} or {}
+    return self:request("state_getMetadata", params)
+end
+
+-- Get call indices using the metadata module
+function RPC:get_call_index(pallet_name, call_name)
+    local runtime_version = self:state_getRuntimeVersion()
+    return metadata.get_call_index(runtime_version.spec_name, pallet_name, call_name)
+end
+
+-- Convenience methods for common calls
+function RPC:get_system_remark_call_index()
+    local runtime_version = self:state_getRuntimeVersion()
+    return metadata.get_system_remark_index(runtime_version.spec_name)
+end
+
+function RPC:get_balances_transfer_call_index()
+    local runtime_version = self:state_getRuntimeVersion()
+    return metadata.get_balances_transfer_index(runtime_version.spec_name)
 end
 
 return RPC 

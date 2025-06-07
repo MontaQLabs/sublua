@@ -1,6 +1,6 @@
 -- sdk/core/extrinsic.lua
 
-local ffi_mod = require("sdk.ffi")
+local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
 local lib  = ffi_mod.lib
 local bit  = require("bit")
@@ -68,7 +68,9 @@ function Extrinsic:encode_unsigned()
 end
 
 --- Encode signed extrinsic, returns hex string (with 0x prefix)
-function Extrinsic:encode_signed(signature, public_key)
+function Extrinsic:encode_signed(signature, public_key, transaction_version)
+    transaction_version = transaction_version or 4  -- Default to version 4 for backward compatibility
+    
     local data_bytes   = type(self.call_data)=="string" and util.hex_to_bytes(self.call_data) or self.call_data
     local data_buf     = prepare_buffer(data_bytes)
     local signature_b  = util.hex_to_bytes(signature)
@@ -89,6 +91,7 @@ function Extrinsic:encode_signed(signature, public_key)
                                             self.nonce,
                                             tip_low, tip_high,
                                             self.era.mortal, self.era.period, self.era.phase,
+                                            transaction_version,
                                             out_ptr, out_len)
     assert(ret == 0, "encode_signed_extrinsic failed (code "..ret..")")
 

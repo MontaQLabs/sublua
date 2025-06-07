@@ -335,7 +335,7 @@ if alice_account and alice_account.data.free > (chain_config.existential_deposit
     print("Transfer amount (units):", transfer_amount_units)
     
     -- Get Bob's AccountId32 (public key) from SS58 address
-    local ffi_module = require('sdk.ffi')
+    local ffi_module = require('sdk.polkadot_ffi')
     local ffi = ffi_module.ffi
     local lib = ffi_module.lib
     
