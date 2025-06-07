@@ -18,10 +18,13 @@ local TOKEN_COLORS = {
     {1, 0.4, 0.8}   -- Purple
 }
 
+-- Fonts
+local fonts = {}
+
 -- Fix module search path for SDK
 package.path = "./?.lua;./?/init.lua;./sdk/?.lua;./sdk/?/init.lua;" .. package.path
 
--- Blockchain integration
+-- Blockchain integration with WASM trap fix
 local sdk = require("sdk.init")
 local ALICE_MNEMONIC = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
 local RPC_URL = "wss://paseo.dotters.network"
@@ -29,17 +32,18 @@ local RPC_URL = "wss://paseo.dotters.network"
 local blockchain = {
     connected = false,
     address = nil,
-    scoreSent = false,
     mnemonic = ALICE_MNEMONIC,
-    showMnemonicInput = false,
     rpc = nil,
     chain_config = nil,
     signer = nil,
-    highScore = 0,
     error = nil,
     balance = nil,
     balanceLoading = false,
-    lastBalanceFetch = 0
+    lastBalanceFetch = 0,
+    nonce = 0,
+    transactionQueue = {},
+    lastTransactionTime = 0,
+    transactionCooldown = 3.0 -- 3 seconds between transactions
 }
 
 -- Game state and story
@@ -152,7 +156,7 @@ local function format_balance(balance, decimals)
     return string.format("%.4f", b / (10^decimals))
 end
 
--- Blockchain: fetch balance
+-- Blockchain: fetch balance and nonce
 local function fetchBalance()
     if not blockchain.connected or not blockchain.address then return end
     blockchain.balanceLoading = true
@@ -160,6 +164,7 @@ local function fetchBalance()
         local account_info = blockchain.rpc:get_account_info(blockchain.address)
         if account_info and account_info.data then
             blockchain.balance = account_info.data.free
+            blockchain.nonce = account_info.nonce or 0
             local free_tokens = account_info.data.free_tokens
             local token_symbol = account_info.data.token_symbol or "PSA"
             return string.format("%.5f %s", free_tokens, token_symbol)
@@ -174,12 +179,86 @@ local function fetchBalance()
     end
 end
 
+-- Enhanced blockchain transaction system
+local function queueTransaction(message, priority)
+    priority = priority or 1
+    table.insert(blockchain.transactionQueue, {
+        message = message,
+        priority = priority,
+        timestamp = love.timer.getTime()
+    })
+    
+    -- Sort by priority (higher priority first)
+    table.sort(blockchain.transactionQueue, function(a, b)
+        return a.priority > b.priority
+    end)
+end
+
+local function sendNextTransaction()
+    if not blockchain.connected or not blockchain.signer then return end
+    if #blockchain.transactionQueue == 0 then return end
+    if love.timer.getTime() - blockchain.lastTransactionTime < blockchain.transactionCooldown then return end
+    
+    local txData = table.remove(blockchain.transactionQueue, 1)
+    
+    local success, err = pcall(function()
+        -- Create System.remark transaction with WASM trap fix
+        local extrinsic = sdk.extrinsic.new({0, 1}, "0x" .. string.gsub(txData.message, ".", function(c)
+            return string.format("%02x", string.byte(c))
+        end))
+        
+        extrinsic:set_nonce(blockchain.nonce)
+        extrinsic:set_era_immortal()
+        extrinsic:set_tip(0)
+        
+        -- Create signing payload and sign
+        local unsigned_payload = extrinsic:encode_unsigned()
+        local signature = blockchain.signer:sign(unsigned_payload)
+        
+        -- CRITICAL: Use transaction version 4 to avoid WASM traps!
+        local signed_hex = extrinsic:encode_signed(signature, blockchain.signer:get_public_key(), 4)
+        
+        local result = blockchain.rpc:author_submitExtrinsic(signed_hex)
+        blockchain.nonce = blockchain.nonce + 1
+        blockchain.lastTransactionTime = love.timer.getTime()
+        
+        print("✅ Game result recorded on blockchain!")
+        print("📋 Transaction Hash:", result)
+        print("🎮 Final Score:", score)
+        print("⚡ Energy Collected:", player.energy)
+    end)
+    
+    if not success then
+        print("❌ Transaction failed:", err)
+        -- Re-queue with lower priority if it failed
+        if not string.find(tostring(err), "temporarily banned") then
+            txData.priority = math.max(1, txData.priority - 1)
+            table.insert(blockchain.transactionQueue, txData)
+        end
+    end
+end
+
+-- Game event blockchain logging - only for final results
+local function logGameEnd(victory)
+    local status = victory and "VICTORY" or "DEFEAT"
+    local timestamp = os.date("%Y%m%d_%H%M%S")
+    local message = string.format("COSMIC_GUARDIAN_%s:SCORE_%d:ENERGY_%d:COMBO_%d:TIME_%.1fs:WAVE_%d:%s", 
+        status, score, player.energy, maxCombo, gameTime, wave, timestamp)
+    queueTransaction(message, 5) -- High priority for game end
+    print("🎮 Queuing final game result for blockchain...")
+end
+
 -- Initialize the game
 function love.load()
     love.window.setMode(WINDOW_WIDTH, WINDOW_HEIGHT)
     love.window.setTitle("Cosmic Guardian: Stellar Harvest")
     love.graphics.setBackgroundColor(0.02, 0.02, 0.08)
     highScore = 0
+    
+    -- Initialize fonts
+    fonts.small = love.graphics.newFont(12)
+    fonts.medium = love.graphics.newFont(16)
+    fonts.large = love.graphics.newFont(24)
     
     -- Blockchain connection
     local success, err = pcall(function()
@@ -313,8 +392,12 @@ end
 
 -- Update game state
 function love.update(dt)
-    if blockchain.connected and (love.timer.getTime() - blockchain.lastBalanceFetch > 5) then
-        fetchBalance()
+    -- Blockchain updates
+    if blockchain.connected then
+        if love.timer.getTime() - blockchain.lastBalanceFetch > 10 then
+            fetchBalance()
+        end
+        sendNextTransaction()
     end
     
     -- Update visual effects
@@ -408,19 +491,19 @@ function love.update(dt)
     
     -- Spawn objects
     crystalSpawnTimer = crystalSpawnTimer + dt
-    if crystalSpawnTimer >= (1.2 - difficulty * 0.1) then
+    if crystalSpawnTimer > TOKEN_SPAWN_RATE / difficulty then
         spawnStellarCrystal()
         crystalSpawnTimer = 0
     end
     
     powerSpawnTimer = powerSpawnTimer + dt
-    if powerSpawnTimer >= 8 then
+    if powerSpawnTimer > 8 / difficulty then
         spawnPowerCore()
         powerSpawnTimer = 0
     end
     
     darkMatterSpawnTimer = darkMatterSpawnTimer + dt
-    if darkMatterSpawnTimer >= (3 - difficulty * 0.2) then
+    if darkMatterSpawnTimer > 3 / difficulty then
         spawnDarkMatter()
         darkMatterSpawnTimer = 0
     end
@@ -432,49 +515,25 @@ function love.update(dt)
         crystal.glow = crystal.glow + dt * 5
         crystal.rotation = crystal.rotation + dt * 2
         
-        -- Magnet effect
-        if player.powerups.magnet > 0 then
-            local dx = player.x - crystal.x
-            local dy = player.y - crystal.y
-            local dist = math.sqrt(dx*dx + dy*dy)
-            if dist < 100 then
-                crystal.x = crystal.x + (dx / dist) * 150 * dt
-                crystal.y = crystal.y + (dy / dist) * 150 * dt
-            end
-        end
-        
-        -- Check collision with player
-        if checkCollision(player, crystal) then
+        if crystal.y > WINDOW_HEIGHT + 50 then
             table.remove(stellarCrystals, i)
-            local points = crystal.points
-            if player.powerups.doublePoints > 0 then
-                points = points * 2
-            end
-            score = score + points
-            player.energy = player.energy + points
-            
-            -- Combo system
-            local currentTime = love.timer.getTime()
-            if currentTime - lastCatchTime < COMBO_TIMEOUT then
-                combo = combo + 1
-                maxCombo = math.max(maxCombo, combo)
-                points = points + combo
-                score = score + combo
-            else
-                combo = 1
-            end
-            lastCatchTime = currentTime
+        elseif checkCollision(player, crystal) then
+            score = score + crystal.points
+            player.energy = player.energy + crystal.points
+            combo = combo + 1
+            maxCombo = math.max(maxCombo, combo)
+            lastCatchTime = gameTime
             
             table.insert(scorePopups, {
-                x = crystal.x, y = crystal.y, 
-                points = points, t = 0, 
-                color = crystal.color
+                x = crystal.x,
+                y = crystal.y,
+                points = crystal.points,
+                color = crystal.color,
+                t = 0
             })
             
             createParticles(crystal.x, crystal.y, crystal.color, 8, 150)
-            flashEffect = 0.1
-            
-        elseif crystal.y > WINDOW_HEIGHT + crystal.radius then
+            flashEffect = 0.2
             table.remove(stellarCrystals, i)
         end
     end
@@ -486,17 +545,12 @@ function love.update(dt)
         core.glow = core.glow + dt * 4
         core.rotation = core.rotation + dt * 3
         
-        if checkCollision(player, core) then
+        if core.y > WINDOW_HEIGHT + 50 then
             table.remove(powerCores, i)
-            player.powerups[core.type] = 10 -- 10 seconds
-            
-            if core.type == "shield" then
-                player.shield = player.maxShield
-            end
-            
-            createExplosion(core.x, core.y, core.color)
-            
-        elseif core.y > WINDOW_HEIGHT + core.radius then
+        elseif checkCollision(player, core) then
+            player.powerups[core.type] = 10
+            createParticles(core.x, core.y, core.color, 12, 200)
+            flashEffect = 0.3
             table.remove(powerCores, i)
         end
     end
@@ -508,24 +562,17 @@ function love.update(dt)
         matter.glow = matter.glow + dt * 6
         matter.rotation = matter.rotation + dt * 4
         
-        if checkCollision(player, matter) and player.invulnerable <= 0 then
+        if matter.y > WINDOW_HEIGHT + 50 then
             table.remove(darkMatter, i)
-            
+        elseif checkCollision(player, matter) and player.invulnerable <= 0 then
             if player.shield > 0 then
                 player.shield = math.max(0, player.shield - matter.damage)
             else
                 player.health = math.max(0, player.health - matter.damage)
-                player.invulnerable = 1
             end
-            
+            player.invulnerable = 1.5
+            combo = 0
             createExplosion(matter.x, matter.y, matter.color)
-            
-            if player.health <= 0 then
-                gameState = "gameover"
-                if score > highScore then highScore = score end
-            end
-            
-        elseif matter.y > WINDOW_HEIGHT + matter.radius then
             table.remove(darkMatter, i)
         end
     end
@@ -544,7 +591,7 @@ function love.update(dt)
     -- Update explosions
     for i = #explosions, 1, -1 do
         local e = explosions[i]
-        e.radius = e.radius + e.maxRadius * dt * 3
+        e.radius = e.radius + 100 * dt
         e.life = e.life - dt * 2
         if e.life <= 0 then
             table.remove(explosions, i)
@@ -561,10 +608,21 @@ function love.update(dt)
         end
     end
     
-    -- Check win condition
-    if player.energy >= 1000 then
+    -- Reset combo if too much time passed
+    if gameTime - lastCatchTime > COMBO_TIMEOUT then
+        combo = 0
+    end
+    
+    -- Check victory condition
+    if player.energy >= 1000 and gameState == "playing" then
         gameState = "victory"
-        if score > highScore then highScore = score end
+        logGameEnd(true)
+    end
+    
+    -- Check game over
+    if player.health <= 0 and gameState == "playing" then
+        gameState = "gameover"
+        logGameEnd(false)
     end
 end
 
@@ -574,8 +632,8 @@ function love.draw()
     if screenShake > 0 then
         love.graphics.push()
         love.graphics.translate(
-            (math.random() - 0.5) * screenShake * 10,
-            (math.random() - 0.5) * screenShake * 10
+            (math.random() - 0.5) * screenShake * 20,
+            (math.random() - 0.5) * screenShake * 20
         )
     end
     
@@ -591,42 +649,38 @@ function love.draw()
     
     -- Draw stars
     for _, star in ipairs(stars) do
-        local alpha = 0.5 + 0.5 * math.sin(star.twinkle)
-        love.graphics.setColor(1, 1, 1, alpha)
+        local twinkle = 0.5 + 0.5 * math.sin(star.twinkle)
+        love.graphics.setColor(1, 1, 1, twinkle)
         love.graphics.circle("fill", star.x, star.y, star.size)
     end
     
     -- Flash effect
     if flashEffect > 0 then
-        love.graphics.setColor(1, 1, 1, flashEffect)
+        love.graphics.setColor(1, 1, 1, flashEffect * 0.3)
         love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
     end
     
     -- Story/Intro screen
     if gameState == "intro" then
-        love.graphics.setColor(0, 0, 0, 0.8)
+        love.graphics.setColor(0, 0, 0, 0.9)
         love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         
         local story = storyText[storyPhase]
         if story then
-            -- Background panel for better readability
-            love.graphics.setColor(0.1, 0.1, 0.1, 0.9)
-            love.graphics.rectangle("fill", 50, 100, WINDOW_WIDTH - 100, WINDOW_HEIGHT - 200, 20, 20)
-            
-            -- Title
+            -- Fixed title positioning to stay within screen bounds
             love.graphics.setColor(0.3, 0.8, 1)
-            love.graphics.printf(story.title, 0, 130, WINDOW_WIDTH, "center", 0, 1.8)
+            love.graphics.printf(story.title, 50, 80, WINDOW_WIDTH - 100, "center", 0, 1.8)
             
-            -- Story text
             love.graphics.setColor(1, 1, 1)
-            love.graphics.printf(story.text, 70, 180, WINDOW_WIDTH - 140, "center", 0, 1)
+            love.graphics.printf(story.text, 80, 150, WINDOW_WIDTH - 160, "center", 0, 1.2)
             
-            -- Continue prompt
             love.graphics.setColor(0.8, 0.8, 0.8)
-            love.graphics.printf("Press SPACE to continue...", 70, WINDOW_HEIGHT - 150, WINDOW_WIDTH - 140, "center", 0, 1)
+            love.graphics.printf("Press SPACE to continue", 50, WINDOW_HEIGHT - 80, WINDOW_WIDTH - 100, "center", 0, 1.3)
         end
         
-        if screenShake > 0 then love.graphics.pop() end
+        if screenShake > 0 then
+            love.graphics.pop()
+        end
         return
     end
     
@@ -643,10 +697,11 @@ function love.draw()
     
     -- Draw explosions
     for _, e in ipairs(explosions) do
-        love.graphics.setColor(e.color[1], e.color[2], e.color[3], e.life * 0.3)
+        local alpha = e.life * 0.5
+        love.graphics.setColor(e.color[1], e.color[2], e.color[3], alpha)
         love.graphics.circle("line", e.x, e.y, e.radius)
-        love.graphics.setColor(e.color[1], e.color[2], e.color[3], e.life * 0.1)
-        love.graphics.circle("fill", e.x, e.y, e.radius)
+        love.graphics.setColor(e.color[1], e.color[2], e.color[3], alpha * 0.3)
+        love.graphics.circle("fill", e.x, e.y, e.radius * 0.5)
     end
     
     -- Draw player trail
@@ -681,89 +736,21 @@ function love.draw()
     end
     
     -- Draw stellar crystals
-    for _, crystal in ipairs(stellarCrystals) do
-        -- Glow effect
-        love.graphics.setColor(crystal.color[1], crystal.color[2], crystal.color[3], 0.3)
-        love.graphics.circle("fill", crystal.x, crystal.y, crystal.radius + 5 + 3 * math.sin(crystal.glow))
-        
-        -- Crystal body
-        love.graphics.setColor(crystal.color)
-        love.graphics.push()
-        love.graphics.translate(crystal.x, crystal.y)
-        love.graphics.rotate(crystal.rotation)
-        love.graphics.polygon("fill", 
-            -crystal.radius, 0,
-            0, -crystal.radius,
-            crystal.radius, 0,
-            0, crystal.radius
-        )
-        love.graphics.pop()
-        
-        -- Crystal core
-        love.graphics.setColor(1, 1, 1, 0.8)
-        love.graphics.circle("fill", crystal.x, crystal.y, crystal.radius * 0.4)
-    end
+    drawStellarCrystals()
     
     -- Draw power cores
-    for _, core in ipairs(powerCores) do
-        -- Glow effect
-        love.graphics.setColor(core.color[1], core.color[2], core.color[3], 0.4)
-        love.graphics.circle("fill", core.x, core.y, core.radius + 8 + 4 * math.sin(core.glow))
-        
-        -- Core body
-        love.graphics.setColor(core.color)
-        love.graphics.push()
-        love.graphics.translate(core.x, core.y)
-        love.graphics.rotate(core.rotation)
-        love.graphics.rectangle("fill", -core.radius, -core.radius, core.radius * 2, core.radius * 2)
-        love.graphics.pop()
-        
-        -- Core center
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.circle("fill", core.x, core.y, core.radius * 0.5)
-    end
+    drawPowerCores()
     
     -- Draw dark matter
-    for _, matter in ipairs(darkMatter) do
-        -- Menacing glow
-        love.graphics.setColor(matter.color[1], matter.color[2], matter.color[3], 0.5)
-        love.graphics.circle("fill", matter.x, matter.y, matter.radius + 6 + 3 * math.sin(matter.glow))
-        
-        -- Dark matter body
-        love.graphics.setColor(matter.color)
-        love.graphics.push()
-        love.graphics.translate(matter.x, matter.y)
-        love.graphics.rotate(matter.rotation)
-        
-        -- Spiky appearance
-        local spikes = 8
-        local points = {}
-        for i = 1, spikes do
-            local angle = (i - 1) * (math.pi * 2 / spikes)
-            local radius = matter.radius * (0.7 + 0.3 * math.sin(matter.glow + i))
-            table.insert(points, math.cos(angle) * radius)
-            table.insert(points, math.sin(angle) * radius)
-        end
-        love.graphics.polygon("fill", points)
-        love.graphics.pop()
-    end
+    drawDarkMatter()
     
     -- Draw score popups
-    for _, p in ipairs(scorePopups) do
-        local alpha = 1 - (p.t / 1.5)
-        love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
-        love.graphics.printf("+" .. p.points, p.x - 30, p.y - 20, 60, "center", 0, 1.5 + p.t)
-        
-        if combo > 1 then
-            love.graphics.setColor(1, 1, 0, alpha)
-            love.graphics.printf("x" .. combo, p.x - 30, p.y + 10, 60, "center", 0, 1.2)
-        end
-    end
+    drawScorePopups()
     
     -- UI Background panels
-    love.graphics.setColor(0, 0, 0, 0.7)
-    love.graphics.rectangle("fill", 10, 10, 250, 120, 10, 10) -- Stats panel
-    love.graphics.rectangle("fill", WINDOW_WIDTH - 310, 10, 300, 120, 10, 10) -- Blockchain panel
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.rectangle("fill", 10, 10, 280, 140, 10, 10) -- Stats panel
+    love.graphics.rectangle("fill", WINDOW_WIDTH - 320, 10, 310, 160, 10, 10) -- Blockchain panel
     
     -- Health and shield bars
     love.graphics.setColor(0.8, 0.2, 0.2)
@@ -783,81 +770,87 @@ function love.draw()
     love.graphics.print("Health: " .. player.health .. "/" .. player.maxHealth, 20, 55)
     love.graphics.print("Score: " .. score, 20, 75)
     love.graphics.print("Energy: " .. player.energy .. "/1000", 20, 95)
-    love.graphics.print("Wave: " .. wave, 20, 115)
+    love.graphics.print("Wave: " .. wave .. " | Time: " .. string.format("%.1f", gameTime) .. "s", 20, 115)
     
     -- Combo display
     if combo > 1 then
         love.graphics.setColor(1, 1, 0)
-        love.graphics.print("COMBO x" .. combo, 140, 75, 0, 1.5)
+        love.graphics.print("COMBO x" .. combo, 20, 135, 0, 1.5)
     end
     
-    -- Active powerups
-    local powerY = 140
-    for k, v in pairs(player.powerups) do
-        if v > 0 then
-            love.graphics.setColor(1, 1, 1, 0.8)
-            love.graphics.print(k:upper() .. ": " .. string.format("%.1f", v), 20, powerY)
-            powerY = powerY + 20
-        end
-    end
-    
-    -- Blockchain UI
+    -- Enhanced Blockchain UI
     love.graphics.setColor(1, 1, 1)
-    local addr = blockchain.address and (blockchain.address:sub(1, 8) .. "..." .. blockchain.address:sub(-4)) or "-"
-    local bal = blockchain.balanceLoading and "..." or (blockchain.balance and string.format("%.5f PSA", blockchain.balance / (10^12)) or "0 PSA")
-    local chain = blockchain.chain_config and blockchain.chain_config.name or "?"
+    local addr = blockchain.address and (blockchain.address:sub(1, 8) .. "..." .. blockchain.address:sub(-4)) or "Not Connected"
+    local bal = blockchain.balanceLoading and "Loading..." or (blockchain.balance and string.format("%.4f PSA", blockchain.balance / (10^12)) or "0 PSA")
+    local chain = blockchain.chain_config and blockchain.chain_config.name or "Unknown"
     
-    love.graphics.printf("Wallet: " .. addr, WINDOW_WIDTH - 300, 20, 280, "right")
-    love.graphics.printf("Balance: " .. bal, WINDOW_WIDTH - 300, 44, 280, "right")
-    love.graphics.printf("Chain: " .. chain, WINDOW_WIDTH - 300, 68, 280, "right")
+    love.graphics.print("🔗 BLOCKCHAIN STATUS", WINDOW_WIDTH - 310, 20)
+    love.graphics.print("Wallet: " .. addr, WINDOW_WIDTH - 310, 40)
+    love.graphics.print("Balance: " .. bal, WINDOW_WIDTH - 310, 60)
+    love.graphics.print("Chain: " .. chain, WINDOW_WIDTH - 310, 80)
+    love.graphics.print("Nonce: " .. blockchain.nonce, WINDOW_WIDTH - 310, 100)
+    love.graphics.print("Queue: " .. #blockchain.transactionQueue .. " pending", WINDOW_WIDTH - 310, 120)
     
     if blockchain.connected then
         love.graphics.setColor(0.2, 1, 0.4)
-        love.graphics.printf("CONNECTED", WINDOW_WIDTH - 300, 92, 280, "right")
+        love.graphics.print("● CONNECTED", WINDOW_WIDTH - 310, 140)
+    else
+        love.graphics.setColor(1, 0.4, 0.2)
+        love.graphics.print("● DISCONNECTED", WINDOW_WIDTH - 310, 140)
     end
     
-    -- Game over screen
+    -- Game over screen with fixed positioning
     if gameState == "gameover" then
-        love.graphics.setColor(0, 0, 0, 0.8)
+        love.graphics.setColor(0, 0, 0, 0.9)
         love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.9)
-        love.graphics.rectangle("fill", 50, 80, WINDOW_WIDTH - 100, WINDOW_HEIGHT - 160, 20, 20)
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.95)
+        love.graphics.rectangle("fill", 60, 100, WINDOW_WIDTH - 120, WINDOW_HEIGHT - 200, 20, 20)
         
         love.graphics.setColor(1, 0.2, 0.2)
-        love.graphics.printf("MISSION FAILED", 0, 110, WINDOW_WIDTH, "center", 0, 2)
+        love.graphics.printf("MISSION FAILED", 80, 130, WINDOW_WIDTH - 160, "center", 0, 1.8)
         
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf("The Dark Matter consumed the galaxy...", 70, 160, WINDOW_WIDTH - 140, "center", 0, 1.2)
-        love.graphics.printf("Final Score: " .. score, 70, 200, WINDOW_WIDTH - 140, "center", 0, 1.5)
-        love.graphics.printf("Energy Collected: " .. player.energy .. "/1000", 70, 240, WINDOW_WIDTH - 140, "center", 0, 1.2)
-        love.graphics.printf("Max Combo: " .. maxCombo .. "x", 70, 280, WINDOW_WIDTH - 140, "center", 0, 1.2)
-        love.graphics.printf("Survival Time: " .. string.format("%.1f", gameTime) .. "s", 70, 320, WINDOW_WIDTH - 140, "center", 0, 1.2)
+        love.graphics.printf("The Dark Matter consumed the galaxy...", 100, 180, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        love.graphics.printf("Final Score: " .. score, 100, 210, WINDOW_WIDTH - 200, "center", 0, 1.3)
+        love.graphics.printf("Energy Collected: " .. player.energy .. "/1000", 100, 240, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        love.graphics.printf("Max Combo: " .. maxCombo .. "x", 100, 270, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        love.graphics.printf("Survival Time: " .. string.format("%.1f", gameTime) .. "s", 100, 300, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        
+        if blockchain.connected then
+            love.graphics.setColor(0.3, 0.8, 1)
+            love.graphics.printf("Game data recorded on blockchain!", 100, 340, WINDOW_WIDTH - 200, "center", 0, 1.0)
+        end
         
         love.graphics.setColor(0.3, 0.8, 1)
-        love.graphics.printf("Press SPACE to try again", 70, 380, WINDOW_WIDTH - 140, "center", 0, 1.5)
+        love.graphics.printf("Press SPACE to try again", 100, 380, WINDOW_WIDTH - 200, "center", 0, 1.4)
     end
     
-    -- Victory screen
+    -- Victory screen with fixed positioning
     if gameState == "victory" then
-        love.graphics.setColor(0, 0, 0, 0.8)
+        love.graphics.setColor(0, 0, 0, 0.9)
         love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.9)
-        love.graphics.rectangle("fill", 50, 80, WINDOW_WIDTH - 100, WINDOW_HEIGHT - 160, 20, 20)
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.95)
+        love.graphics.rectangle("fill", 60, 100, WINDOW_WIDTH - 120, WINDOW_HEIGHT - 200, 20, 20)
         
         love.graphics.setColor(0.2, 1, 0.2)
-        love.graphics.printf("MISSION ACCOMPLISHED!", 0, 110, WINDOW_WIDTH, "center", 0, 2)
+        love.graphics.printf("MISSION ACCOMPLISHED!", 80, 130, WINDOW_WIDTH - 160, "center", 0, 1.6)
         
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf("You saved the galaxy, Guardian!", 70, 160, WINDOW_WIDTH - 140, "center", 0, 1.2)
-        love.graphics.printf("The Defense Grid is now online!", 70, 190, WINDOW_WIDTH - 140, "center", 0, 1)
-        love.graphics.printf("Final Score: " .. score, 70, 230, WINDOW_WIDTH - 140, "center", 0, 1.5)
-        love.graphics.printf("Max Combo: " .. maxCombo .. "x", 70, 270, WINDOW_WIDTH - 140, "center", 0, 1.2)
-        love.graphics.printf("Mission Time: " .. string.format("%.1f", gameTime) .. "s", 70, 310, WINDOW_WIDTH - 140, "center", 0, 1.2)
+        love.graphics.printf("You saved the galaxy, Guardian!", 100, 180, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        love.graphics.printf("The Defense Grid is now online!", 100, 210, WINDOW_WIDTH - 200, "center", 0, 1.0)
+        love.graphics.printf("Final Score: " .. score, 100, 240, WINDOW_WIDTH - 200, "center", 0, 1.3)
+        love.graphics.printf("Max Combo: " .. maxCombo .. "x", 100, 270, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        love.graphics.printf("Mission Time: " .. string.format("%.1f", gameTime) .. "s", 100, 300, WINDOW_WIDTH - 200, "center", 0, 1.1)
+        
+        if blockchain.connected then
+            love.graphics.setColor(0.2, 1, 0.2)
+            love.graphics.printf("Victory recorded on blockchain!", 100, 340, WINDOW_WIDTH - 200, "center", 0, 1.0)
+        end
         
         love.graphics.setColor(0.3, 0.8, 1)
-        love.graphics.printf("Press SPACE to play again", 70, 380, WINDOW_WIDTH - 140, "center", 0, 1.5)
+        love.graphics.printf("Press SPACE to play again", 100, 380, WINDOW_WIDTH - 200, "center", 0, 1.4)
     end
     
     if screenShake > 0 then
@@ -886,41 +879,6 @@ function love.keypressed(key)
         elseif gameState == "paused" then
             gameState = "playing"
         end
-    end
-end
-
--- Blockchain functions
-function sendScoreToBlockchain()
-    if not blockchain.connected or not blockchain.signer or blockchain.scoreSent then return end
-    
-    local success, err = pcall(function()
-        local extrinsic = sdk.extrinsic.new({
-            module = "System",
-            call = "remark",
-            args = { "COSMIC_GUARDIAN_SCORE:" .. score .. ":ENERGY:" .. player.energy .. ":COMBO:" .. maxCombo }
-        })
-        
-        local account_info = blockchain.rpc:get_account_info(blockchain.address)
-        local nonce = account_info and account_info.nonce or 0
-        
-        extrinsic:set_nonce(nonce)
-        extrinsic:set_tip(0)
-        extrinsic:set_era_immortal()
-        
-        local unsigned_hex = extrinsic:encode_unsigned()
-        local signature = blockchain.signer:sign(unsigned_hex)
-        local signed_hex = extrinsic:encode_signed(signature, blockchain.signer:get_public_key())
-        
-        local result = blockchain.rpc:author_submitExtrinsic(signed_hex)
-        blockchain.scoreSent = true
-        print("Score sent to blockchain:", score)
-        print("Energy collected:", player.energy)
-        print("Max combo:", maxCombo)
-        print("Transaction hash:", result)
-    end)
-    
-    if not success then
-        print("Failed to send score:", err)
     end
 end
 
@@ -959,7 +917,128 @@ function resetGame()
         player.powerups[k] = 0
     end
     
-    blockchain.scoreSent = false
     screenShake = 0
     flashEffect = 0
+    
+    -- Refresh nonce for new game
+    if blockchain.connected then
+        fetchBalance()
+    end
+end
+
+-- Draw stellar crystals
+function drawStellarCrystals()
+    for _, crystal in ipairs(stellarCrystals) do
+        love.graphics.push()
+        love.graphics.translate(crystal.x, crystal.y)
+        love.graphics.rotate(crystal.rotation)
+        
+        -- Glow effect
+        local glowAlpha = 0.3 + 0.2 * math.sin(crystal.glow)
+        love.graphics.setColor(crystal.color[1], crystal.color[2], crystal.color[3], glowAlpha)
+        love.graphics.circle("fill", 0, 0, crystal.radius * 1.5)
+        
+        -- Main crystal
+        love.graphics.setColor(crystal.color)
+        love.graphics.circle("fill", 0, 0, crystal.radius)
+        
+        -- Inner shine
+        love.graphics.setColor(1, 1, 1, 0.8)
+        love.graphics.circle("fill", -crystal.radius * 0.3, -crystal.radius * 0.3, crystal.radius * 0.4)
+        
+        love.graphics.pop()
+    end
+end
+
+-- Draw power cores
+function drawPowerCores()
+    for _, core in ipairs(powerCores) do
+        love.graphics.push()
+        love.graphics.translate(core.x, core.y)
+        love.graphics.rotate(core.rotation)
+        
+        -- Outer glow
+        local glowAlpha = 0.4 + 0.3 * math.sin(core.glow)
+        love.graphics.setColor(core.color[1], core.color[2], core.color[3], glowAlpha)
+        love.graphics.circle("fill", 0, 0, core.radius * 2)
+        
+        -- Main core
+        love.graphics.setColor(core.color)
+        love.graphics.circle("fill", 0, 0, core.radius)
+        
+        -- Core pattern
+        love.graphics.setColor(1, 1, 1, 0.9)
+        for i = 1, 6 do
+            local angle = (i / 6) * math.pi * 2
+            local x = math.cos(angle) * core.radius * 0.6
+            local y = math.sin(angle) * core.radius * 0.6
+            love.graphics.circle("fill", x, y, 2)
+        end
+        
+        love.graphics.pop()
+    end
+end
+
+-- Draw dark matter
+function drawDarkMatter()
+    for _, matter in ipairs(darkMatter) do
+        love.graphics.push()
+        love.graphics.translate(matter.x, matter.y)
+        love.graphics.rotate(matter.rotation)
+        
+        -- Dark aura
+        local glowAlpha = 0.5 + 0.3 * math.sin(matter.glow)
+        love.graphics.setColor(matter.color[1], matter.color[2], matter.color[3], glowAlpha)
+        love.graphics.circle("fill", 0, 0, matter.radius * 1.8)
+        
+        -- Main matter
+        love.graphics.setColor(matter.color)
+        love.graphics.circle("fill", 0, 0, matter.radius)
+        
+        -- Dark core
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.8)
+        love.graphics.circle("fill", 0, 0, matter.radius * 0.5)
+        
+        -- Energy crackling
+        love.graphics.setColor(0.8, 0.2, 0.2, 0.6)
+        for i = 1, 4 do
+            local angle = (i / 4) * math.pi * 2 + matter.rotation * 2
+            local x1 = math.cos(angle) * matter.radius * 0.3
+            local y1 = math.sin(angle) * matter.radius * 0.3
+            local x2 = math.cos(angle) * matter.radius * 0.8
+            local y2 = math.sin(angle) * matter.radius * 0.8
+            love.graphics.line(x1, y1, x2, y2)
+        end
+        
+        love.graphics.pop()
+    end
+end
+
+-- Draw particles
+function drawParticles()
+    for _, p in ipairs(particles) do
+        local alpha = p.life
+        love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
+        love.graphics.circle("fill", p.x, p.y, p.size * p.life)
+    end
+end
+
+-- Draw explosions
+function drawExplosions()
+    for _, e in ipairs(explosions) do
+        local alpha = e.life * 0.5
+        love.graphics.setColor(e.color[1], e.color[2], e.color[3], alpha)
+        love.graphics.circle("line", e.x, e.y, e.radius)
+        love.graphics.setColor(e.color[1], e.color[2], e.color[3], alpha * 0.3)
+        love.graphics.circle("fill", e.x, e.y, e.radius * 0.5)
+    end
+end
+
+-- Draw score popups
+function drawScorePopups()
+    for _, p in ipairs(scorePopups) do
+        local alpha = 1 - (p.t / 1.5)
+        love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
+        love.graphics.printf("+" .. p.points, p.x - 50, p.y, 100, "center")
+    end
 end 
