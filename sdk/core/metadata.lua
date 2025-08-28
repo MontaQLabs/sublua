@@ -41,7 +41,7 @@ function Metadata.get_fallback_indices(spec_name)
         },
         paseo = {
             system = { pallet = 0, remark_with_event = 7 },
-            balances = { pallet = 5, transfer_keep_alive = 3 }  -- CORRECTED: Confirmed working [5, 3]
+            balances = { pallet = 5, transfer_allow_death = 0 }  -- CORRECTED: Use transferAllowDeath [5, 0] = 0500
         },
         rococo = {
             system = { pallet = 0, remark_with_event = 7 },
@@ -97,6 +97,8 @@ function Metadata.get_call_index(spec_name, pallet_name, call_name, rpc)
     elseif pallet_name == "balances" or pallet_name == "Balances" then
         if call_name == "transfer_keep_alive" or call_name == "transfer" then
             return {indices.balances.pallet, indices.balances.transfer_keep_alive}
+        elseif call_name == "transfer_allow_death" or call_name == "transferAllowDeath" then
+            return {indices.balances.pallet, indices.balances.transfer_allow_death}
         end
     end
     
@@ -111,7 +113,12 @@ end
 
 function Metadata.get_balances_transfer_index(spec_name, rpc)
     local indices = Metadata.get_call_indices(spec_name, rpc)
-    return {indices.balances.pallet, indices.balances.transfer_keep_alive}
+    -- Use transfer_allow_death for Paseo, transfer_keep_alive for others
+    if spec_name and spec_name:lower():find("paseo") then
+        return {indices.balances.pallet, indices.balances.transfer_allow_death}
+    else
+        return {indices.balances.pallet, indices.balances.transfer_keep_alive}
+    end
 end
 
 -- Enhanced metadata parser (for future use)

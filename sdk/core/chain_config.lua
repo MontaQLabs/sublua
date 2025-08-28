@@ -44,6 +44,7 @@ ChainConfig.CHAINS = {
     PASEO = {
         name = "Paseo Testnet",
         rpc_urls = {
+            "wss://paseo.rpc.amforc.com",
             "wss://paseo.dotters.network",
             "wss://rpc.ibp.network/paseo"
         },

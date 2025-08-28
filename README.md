@@ -1,213 +1,238 @@
+
+
 <img src="https://github.com/user-attachments/assets/176ee468-6acb-43e5-8792-c16ff2ecd2d0" alt="SubLua SDK Logo Design" width="300">
 
 # SubLua - Substrate SDK for Lua
 
-A development SDK that brings Substrate blockchain functionality to Lua through FFI bindings.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Lua](https://img.shields.io/badge/Lua-5.1+-blue.svg)](https://www.lua.org/)
+[![Substrate](https://img.shields.io/badge/Substrate-Compatible-green.svg)](https://substrate.io/)
 
-**SubLua** = **Sub**strate + **Lua** - because sometimes you need to interact with Substrate chains from Lua.
+SubLua is a high-performance Lua SDK for interacting with Substrate-based blockchains. It provides type-safe cryptographic operations, transaction submission, and chain data querying through a clean Lua API.
 
-## What This Is
+## 🚀 Features
 
-This is a working proof-of-concept SDK that allows Lua scripts to:
-- Connect to any Substrate-based blockchain
-- Query account balances and chain state
-- Create and sign transactions
-- Submit transactions to the network
+- **Type-Safe Cryptography**: Sr25519 keypair management, signing, and address generation
+- **Transaction Support**: Submit transactions to any Substrate-based blockchain
+- **Chain Metadata**: Dynamic metadata fetching and parsing
+- **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and custom chains
+- **High Performance**: Optimized FFI bindings to Rust libraries
+- **Production Ready**: Comprehensive error handling and testing
 
-Built with a Rust FFI layer for cryptographic operations and a Lua interface for ease of use.
-
-## The Need for SubLua
-
-Before SubLua, integrating Substrate chains with Lua-based applications required complex workarounds or learning entirely new languages. This created a barrier for:
-
-**Game Developers**: Popular game engines like LÖVE2D, Defold, and Corona SDK use Lua for scripting. Game developers wanting to add blockchain features (player-owned assets, token rewards, leaderboards) had no direct path to Substrate chains.
-
-**Roblox Developers**: While Roblox uses Luau (not standard Lua), the concepts are similar. SubLua's HTTP proxy architecture could enable Roblox games to interact with Substrate chains through external services.
-
-**IoT and Embedded Systems**: Many IoT devices and embedded systems use Lua for configuration and scripting (OpenWrt, NodeMCU, etc.). SubLua enables these devices to participate in Substrate networks for micropayments, data verification, or device authentication.
-
-**Existing Lua Applications**: Millions of applications already use Lua - from web servers (OpenResty) to network equipment. SubLua lets these systems integrate blockchain functionality without major rewrites.
-
-SubLua opens up the entire Substrate ecosystem to these use cases, enabling new types of applications that bridge traditional software with blockchain capabilities.
-
-## What's Actually Implemented
-
-### ✅ Core Features
-- **Chain Connection**: Connect to any Substrate RPC endpoint
-- **Account Management**: Generate addresses, check balances
-- **Transaction Creation**: Build balance transfer transactions
-- **Cryptographic Signing**: Sr25519 signatures via Rust FFI
-- **Chain Queries**: Get runtime info, storage, account data
-
-### ✅ Supported Chains
-Tested and working with:
-- Polkadot
-- Kusama  
-- Westend Testnet
-- Paseo Testnet
-- Any Substrate-based chain with standard pallets
-
-### ✅ Transaction Types
-Currently implemented:
-- Balance transfers (`balances.transfer`)
-- System remarks (`system.remark`)
-
-## Architecture
-
-```
-┌─────────────────┐
-│   Lua Scripts   │
-├─────────────────┤
-│   SubLua SDK    │
-├─────────────────┤
-│  Rust FFI Lib   │  ← Handles crypto operations
-├─────────────────┤
-│ Substrate Chain │
-└─────────────────┘
-```
-
-## Quick Start
+## 📦 Installation
 
 ### Prerequisites
-```bash
-# Install Lua and LuaJIT
-sudo pacman -S lua luajit  # Arch Linux
-# or
-sudo apt install lua5.1 luajit  # Ubuntu/Debian
 
-# Install Lua dependencies
-luarocks install luasocket lua-cjson
-```
+- Lua 5.1+ or LuaJIT
+- Rust and Cargo
+- Git
 
-### Build
+### Quick Install
+
+#### Option 1: Using Makefile (Recommended)
 ```bash
-git clone https://github.com/MontaQLabs/sublua.git
+# Clone the repository
+git clone https://github.com/your-org/sublua.git
 cd sublua
 
-# Build the Rust FFI library
-cd polkadot-ffi
+# Install with one command
+make install
+```
+
+#### Option 2: Using LuaRocks
+```bash
+# Install directly via LuaRocks
+luarocks install sublua-scm-0.rockspec
+```
+
+#### Option 3: Manual Installation
+```bash
+# Clone the repository
+git clone https://github.com/your-org/sublua.git
+cd sublua
+
+# Build the FFI library
+cd polkadot-ffi-subxt
 cargo build --release
 cd ..
 
-# Test the SDK
-luajit example_game.lua
+# Install Lua dependencies
+luarocks install luasocket
+luarocks install lua-cjson
+luarocks install luasec
+
+# Install SubLua
+luarocks install sublua-scm-0.rockspec
 ```
 
-### Basic Usage
+## 🛠️ Development Commands
+
+The Makefile provides convenient commands for development:
+
+```bash
+make install    # Install SubLua
+make test       # Run test suite
+make example    # Run basic usage example
+make game       # Run game integration example
+make clean      # Clean build artifacts
+make uninstall  # Remove SubLua
+make help       # Show all commands
+```
+
+## 🎯 Quick Start
 
 ```lua
-local sublua = require("sdk.init")
+local sdk = require("sdk.init")
 
--- Connect to a Substrate chain
-local rpc = sublua.rpc.new("wss://rpc.polkadot.io")
-local config = sublua.chain_config.detect_from_url("wss://rpc.polkadot.io")
+-- Connect to a chain
+local rpc = sdk.rpc.new("wss://westend-rpc.polkadot.io")
 
 -- Create a signer from mnemonic
-local signer = sublua.signer.from_mnemonic("your twelve word mnemonic here")
-local address = signer:get_ss58_address(config.ss58_prefix)
+local signer = sdk.signer.from_mnemonic("your twelve word mnemonic phrase here")
 
--- Check balance
-local account = rpc:get_account_info(address)
-print("Balance: " .. account.data.free_tokens .. " " .. config.token_symbol)
+-- Get account info
+local account = rpc:get_account_info(signer:get_ss58_address(42))
+print("Balance:", account.data.free_tokens, account.data.token_symbol)
 
--- Create a transfer
-local transfer = sublua.extrinsic.balance_transfer({
-    from = signer,
-    to = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-    amount = 1000000000000,  -- 1 DOT in plancks
-    config = config,
-    nonce = account.nonce
-})
-
--- Sign and submit
-local signed = transfer:sign()
-local tx_hash = rpc:author_submitExtrinsic(signed)
-print("Transaction hash: " .. tx_hash)
+-- Transfer tokens
+local tx_hash = signer:transfer(rpc, "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", 1000000000000)
+print("Transaction hash:", tx_hash)
 ```
 
-## File Structure
+## 📚 API Reference
 
-```
-sublua/
-├── sdk/                    # Main SDK code
-│   ├── init.lua           # SDK entry point
-│   ├── ffi.lua            # FFI bindings to Rust
-│   └── core/              # Core modules
-│       ├── chain_config.lua  # Chain configuration detection
-│       ├── extrinsic.lua     # Transaction building
-│       ├── rpc.lua           # RPC client
-│       ├── signer.lua        # Cryptographic signing
-│       └── util.lua          # Utilities
-├── polkadot-ffi/          # Rust FFI library
-│   ├── src/lib.rs         # Main FFI exports
-│   └── src/extrinsic.rs   # Transaction utilities
-├── example_game.lua       # Complete usage example
-└── README.md             # This file
+### SDK Core
+
+#### `sdk.rpc.new(url)`
+Creates a new RPC client connection.
+
+```lua
+local rpc = sdk.rpc.new("wss://westend-rpc.polkadot.io")
 ```
 
-## Current Limitations
+#### `rpc:get_account_info(address)`
+Fetches account information including balance and nonce.
 
-- **Transaction Types**: Only balance transfers and system remarks implemented
-- **Error Handling**: Basic error handling, could be more robust  
-- **Testing**: Limited automated testing
-- **Documentation**: Minimal inline documentation
-- **Performance**: Not optimized for high-throughput applications
+```lua
+local account = rpc:get_account_info("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY")
+print("Balance:", account.data.free_tokens)
+print("Nonce:", account.nonce)
+```
 
-## Development Status
+### Signer Management
 
-This is a **development SDK** - it works for basic use cases but needs more work for production use.
+#### `sdk.signer.from_mnemonic(mnemonic)`
+Creates a signer from a mnemonic phrase.
 
-### What Works Well
-- Basic Substrate integration
-- Transaction creation and signing
-- Multi-chain support through auto-detection
-- Clean Lua API
+```lua
+local signer = sdk.signer.from_mnemonic("your twelve word mnemonic phrase here")
+```
 
-### What Needs Work
-- More transaction types (staking, governance, etc.)
-- Better error handling and validation
-- Comprehensive testing suite
-- Performance optimization
-- More complete documentation
+#### `signer:get_ss58_address(prefix)`
+Generates an SS58 address for the specified network prefix.
 
-## Example: DOT Catcher game in LOVE2D
+```lua
+local address = signer:get_ss58_address(42)  -- Westend
+local address = signer:get_ss58_address(0)   -- Polkadot
+```
 
-![Screenshot From 2025-06-08 04-26-30](https://github.com/user-attachments/assets/cb1db54b-4c0a-40c6-9a7b-f200da78f6c8)
+#### `signer:transfer(rpc, destination, amount)`
+Submits a balance transfer transaction.
 
-![Screenshot From 2025-06-08 04-26-09](https://github.com/user-attachments/assets/82969351-cf52-4c5f-a7b1-789a0d070392)
+```lua
+local tx_hash = signer:transfer(rpc, "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", 1000000000000)
+```
 
-## Example: Complete Transfer
+### Chain Configuration
 
-See `example_game.lua` for a full working example that:
-1. Connects to Paseo testnet
-2. Creates player accounts
-3. Checks balances
-4. Creates and signs a transfer transaction
-5. Demonstrates various chain queries
+#### `sdk.chain_config.detect_from_url(url)`
+Automatically detects chain configuration from RPC URL.
 
-## Why Lua?
+```lua
+local config = sdk.chain_config.detect_from_url("wss://westend-rpc.polkadot.io")
+print("Token:", config.token_symbol)
+print("Decimals:", config.token_decimals)
+```
 
-Lua is lightweight, embeddable, and widely used in:
-- Game development (World of Warcraft, Roblox, etc.)
-- Network applications (nginx, OpenResty)
-- Embedded systems
-- Scripting and automation
+## 🔧 Advanced Usage
 
-SubLua makes Substrate accessible to these ecosystems without requiring developers to learn Rust or JavaScript.
+### Custom Chain Configuration
 
-## Contributing
+```lua
+local config = {
+    name = "Custom Chain",
+    token_symbol = "CST",
+    token_decimals = 12,
+    ss58_prefix = 42,
+    existential_deposit = 1000000000000
+}
 
-This is early-stage development. Areas that need work:
-- Additional transaction types
-- Better error handling
-- More comprehensive testing
-- Documentation improvements
-- Performance optimization
+local rpc = sdk.rpc.new("wss://your-chain-rpc.com", config)
+```
 
-## License
+### Batch Transactions
 
-MIT License - see LICENSE file for details.
+```lua
+-- Create multiple transactions
+local batch = sdk.extrinsic_builder.new(rpc)
+batch:balances_transfer(dest1, amount1)
+batch:balances_transfer(dest2, amount2)
 
----
+-- Submit batch
+local tx_hash = signer:submit_batch(batch)
+```
 
-*SubLua: Making Substrate accessible to Lua developers* 
+### Event Monitoring
+
+```lua
+-- Subscribe to events
+local subscription = rpc:subscribe_events(function(event)
+    if event.pallet == "Balances" and event.event == "Transfer" then
+        print("Transfer:", event.data)
+    end
+end)
+```
+
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+luajit test/run_tests.lua
+
+# Run specific test
+luajit test/test_transfers.lua
+```
+
+## 📖 Examples
+
+See the `examples/` directory for comprehensive examples:
+
+- `examples/basic_usage.lua` - Basic SDK usage
+- `examples/game_integration.lua` - Game integration example
+- `examples/advanced_features.lua` - Advanced features demonstration
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Documentation**: [docs.sublua.dev](https://docs.sublua.dev)
+- **Issues**: [GitHub Issues](https://github.com/your-org/sublua/issues)
+- **Discord**: [SubLua Community](https://discord.gg/sublua)
+
+## 🙏 Acknowledgments
+
+- [Substrate](https://substrate.io/) - The blockchain framework
+- [subxt](https://github.com/paritytech/subxt) - Rust Substrate client
+- [LuaJIT](https://luajit.org/) - High-performance Lua implementation

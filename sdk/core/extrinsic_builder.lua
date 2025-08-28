@@ -42,7 +42,7 @@ function ExtrinsicBuilder:system_remark(message)
     return extrinsic.new(call_index, message_hex)
 end
 
--- Create Balances.transfer_keep_alive extrinsic
+-- Create Balances.transferAllowDeath extrinsic (what Polkadot.js Apps uses)
 function ExtrinsicBuilder:balances_transfer(recipient_address, amount_units)
     local spec_name = self:get_spec_name()
     local call_index = metadata.get_balances_transfer_index(spec_name, self.rpc)
