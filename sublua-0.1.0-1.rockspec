@@ -1,5 +1,5 @@
 package = "sublua"
-version = "scm-0"
+version = "0.1.0-1"
 source = {
    url = "git+https://github.com/MontaQLabs/sublua.git",
    tag = "v0.1.0"

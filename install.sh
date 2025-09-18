@@ -1,90 +1,91 @@
 #!/bin/bash
-# SubLua Installer
-# One-line installation: curl -sSL https://raw.githubusercontent.com/your-org/sublua/main/install.sh | bash
+
+# SubLua Installation Script
+# Handles FFI library compilation and package installation
 
 set -e
 
-echo "🚀 SubLua Installer"
-echo "==================="
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+echo "🚀 Installing SubLua..."
 
 # Check prerequisites
-check_prereq() {
-    if ! command -v $1 &> /dev/null; then
-        echo -e "${RED}❌ $1 not found${NC}"
-        echo "Please install $1 first:"
-        case $1 in
-            "luajit")
-                echo "  macOS: brew install luajit"
-                echo "  Ubuntu: sudo apt-get install luajit"
-                ;;
-            "cargo")
-                echo "  Visit: https://rustup.rs/"
-                ;;
-            "luarocks")
-                echo "  Visit: https://luarocks.org/"
-                ;;
-        esac
+check_prerequisites() {
+    echo "🔍 Checking prerequisites..."
+    
+    # Check for Lua
+    if ! command -v lua &> /dev/null && ! command -v luajit &> /dev/null; then
+        echo "❌ Lua or LuaJIT not found. Please install Lua 5.1+ or LuaJIT."
         exit 1
     fi
-    echo -e "${GREEN}✅ $1 found${NC}"
+    
+    # Check for LuaRocks
+    if ! command -v luarocks &> /dev/null; then
+        echo "❌ LuaRocks not found. Please install LuaRocks."
+        echo "   Visit: https://luarocks.org/"
+        exit 1
+    fi
+    
+    # Check for Rust
+    if ! command -v cargo &> /dev/null; then
+        echo "❌ Rust/Cargo not found. Please install Rust."
+        echo "   Visit: https://rustup.rs/"
+        exit 1
+    fi
+    
+    echo "✅ Prerequisites check passed!"
 }
 
-echo "Checking prerequisites..."
-check_prereq "luajit"
-check_prereq "cargo"
-check_prereq "luarocks"
-
-# Clone repository
-echo -e "\n${YELLOW}📦 Cloning SubLua repository...${NC}"
-if [ -d "sublua" ]; then
-    echo "Repository already exists, updating..."
-    cd sublua
-    git pull origin main
-else
-    git clone https://github.com/your-org/sublua.git
-    cd sublua
-fi
-
 # Install dependencies
-echo -e "\n${YELLOW}📦 Installing Lua dependencies...${NC}"
-luarocks install luasocket
-luarocks install lua-cjson
-luarocks install luasec
+install_dependencies() {
+    echo "📦 Installing Lua dependencies..."
+    luarocks install luasocket
+    luarocks install lua-cjson
+    luarocks install luasec
+    echo "✅ Dependencies installed!"
+}
 
 # Build FFI library
-echo -e "\n${YELLOW}🔧 Building FFI library...${NC}"
-cd polkadot-ffi-subxt
-cargo build --release
-cd ..
+build_ffi() {
+    echo "🔧 Building FFI library..."
+    cd polkadot-ffi-subxt
+    cargo build --release
+    cd ..
+    echo "✅ FFI library built!"
+}
 
 # Install SubLua
-echo -e "\n${YELLOW}📦 Installing SubLua...${NC}"
-luarocks install sublua-scm-0.rockspec
+install_sublua() {
+    echo "📥 Installing SubLua package..."
+    luarocks install sublua-scm-0.rockspec
+    echo "✅ SubLua installed!"
+}
 
-# Test installation
-echo -e "\n${YELLOW}🧪 Testing installation...${NC}"
-if luajit -e "local sdk = require('sdk.init'); print('✅ SDK loaded successfully')"; then
-    echo -e "${GREEN}✅ Installation successful!${NC}"
-else
-    echo -e "${RED}❌ Installation test failed${NC}"
-    exit 1
-fi
+# Verify installation
+verify_installation() {
+    echo "🧪 Verifying installation..."
+    lua -e "local sdk = require('sdk.init'); print('✅ SubLua loaded successfully!')"
+    echo "✅ Installation verified!"
+}
 
-echo -e "\n${GREEN}🎉 SubLua installed successfully!${NC}"
-echo ""
-echo "📚 Next steps:"
-echo "  1. Run: luajit examples/basic_usage.lua"
-echo "  2. Run: luajit test/run_tests.lua"
-echo "  3. Check: docs/API.md for API reference"
-echo ""
-echo "🔗 Quick start:"
-echo "  local sdk = require('sdk.init')"
-echo "  local rpc = sdk.rpc.new('wss://westend-rpc.polkadot.io')"
-echo ""
-echo "📖 Documentation: https://github.com/your-org/sublua"
+# Main installation process
+main() {
+    check_prerequisites
+    install_dependencies
+    build_ffi
+    install_sublua
+    verify_installation
+    
+    echo ""
+    echo "🎉 SubLua installation complete!"
+    echo ""
+    echo "Quick start:"
+    echo "  local sdk = require('sdk.init')"
+    echo "  local rpc = sdk.rpc.new('wss://westend-rpc.polkadot.io')"
+    echo ""
+    echo "Run examples:"
+    echo "  make example  # Basic usage"
+    echo "  make game     # Game integration"
+    echo "  make test     # Run tests"
+}
+
+# Run main function
+main "$@"

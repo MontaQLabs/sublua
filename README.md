@@ -21,34 +21,48 @@ SubLua is a high-performance Lua SDK for interacting with Substrate-based blockc
 
 ## 📦 Installation
 
+SubLua can be installed like any other Lua package, similar to `pip install` for Python.
+
 ### Prerequisites
 
 - Lua 5.1+ or LuaJIT
-- Rust and Cargo
-- Git
+- LuaRocks (Lua package manager)
+- Rust and Cargo (for FFI library compilation)
 
 ### Quick Install
 
-#### Option 1: Using Makefile (Recommended)
+#### Option 1: Automated Install Script (Recommended)
+```bash
+# Clone and install with one command
+git clone https://github.com/MontaQLabs/sublua.git
+cd sublua
+chmod +x install.sh
+./install.sh
+```
+
+#### Option 2: Using LuaRocks (Standard Package Manager)
+```bash
+# Install dependencies
+luarocks install luasocket lua-cjson luasec
+
+# Install SubLua
+luarocks install sublua-scm-0.rockspec
+```
+
+#### Option 3: Using Makefile
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/sublua.git
+git clone https://github.com/MontaQLabs/sublua.git
 cd sublua
 
 # Install with one command
 make install
 ```
 
-#### Option 2: Using LuaRocks
-```bash
-# Install directly via LuaRocks
-luarocks install sublua-scm-0.rockspec
-```
-
-#### Option 3: Manual Installation
+#### Option 4: Manual Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/sublua.git
+git clone https://github.com/MontaQLabs/sublua.git
 cd sublua
 
 # Build the FFI library
@@ -57,13 +71,15 @@ cargo build --release
 cd ..
 
 # Install Lua dependencies
-luarocks install luasocket
-luarocks install lua-cjson
-luarocks install luasec
+luarocks install luasocket lua-cjson luasec
 
 # Install SubLua
 luarocks install sublua-scm-0.rockspec
 ```
+
+> 📖 **Detailed Installation Guide**: See [INSTALL.md](INSTALL.md) for comprehensive installation instructions, troubleshooting, and platform-specific setup.
+> 
+> 🚀 **Publishing Guide**: See [PUBLISHING.md](PUBLISHING.md) for instructions on publishing SubLua to LuaRocks repository.
 
 ## 🛠️ Development Commands
 

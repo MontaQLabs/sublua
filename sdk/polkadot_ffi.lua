@@ -61,12 +61,47 @@ end
 
 -- Form candidate paths (relative to this file as well as CWD)
 local this_dir = debug.getinfo(1, "S").source:match("@?(.*/)") or "./"
+
+-- Get LuaRocks installation path
+local function get_luarocks_path()
+    local handle = io.popen("luarocks path --lr-path 2>/dev/null")
+    if handle then
+        local path = handle:read("*a"):match("([^;]+)")
+        handle:close()
+        if path then
+            return path:gsub("/?$", "") .. "/"
+        end
+    end
+    return nil
+end
+
+local luarocks_path = get_luarocks_path()
+
 local candidates = {
     "polkadot_ffi",                       -- in LD_LIBRARY_PATH / system path
     "libpolkadot_ffi.so",                 -- likewise
-    this_dir .. "../polkadot-ffi/target/release/libpolkadot_ffi.so",
-    this_dir .. "../../polkadot-ffi/target/release/libpolkadot_ffi.so", -- when this file ends up in sdk/core/
+    "polkadot_ffi.so",                    -- LuaRocks installed name
+    this_dir .. "../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so",
+    this_dir .. "../../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so",
 }
+
+-- Add LuaRocks installation paths
+if luarocks_path then
+    table.insert(candidates, luarocks_path .. "polkadot_ffi.so")
+    table.insert(candidates, luarocks_path .. "libpolkadot_ffi.so")
+end
+
+-- Add system library paths
+local system_paths = {
+    "/usr/local/lib/",
+    "/usr/lib/",
+    "/lib/",
+}
+
+for _, sys_path in ipairs(system_paths) do
+    table.insert(candidates, sys_path .. "libpolkadot_ffi.so")
+    table.insert(candidates, sys_path .. "polkadot_ffi.so")
+end
 
 local lib, err = try_load(candidates)
 if not lib then

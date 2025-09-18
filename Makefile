@@ -29,6 +29,11 @@ test: install
 	@echo "🧪 Running tests..."
 	@luajit test/run_tests.lua
 
+# Test installation
+test-install: install
+	@echo "🧪 Testing installation..."
+	@luajit test/test_installation.lua
+
 # Run basic example
 example: install
 	@echo "💡 Running basic example..."
@@ -48,11 +53,12 @@ clean:
 # Show help
 help:
 	@echo "SubLua Makefile Commands:"
-	@echo "  install    - Install SubLua via LuaRocks"
-	@echo "  build-ffi  - Build the FFI library"
-	@echo "  uninstall  - Remove SubLua"
-	@echo "  test       - Run test suite"
-	@echo "  example    - Run basic usage example"
-	@echo "  game       - Run game integration example"
-	@echo "  clean      - Clean build artifacts"
-	@echo "  help       - Show this help"
+	@echo "  install      - Install SubLua via LuaRocks"
+	@echo "  build-ffi    - Build the FFI library"
+	@echo "  uninstall    - Remove SubLua"
+	@echo "  test         - Run test suite"
+	@echo "  test-install - Test installation"
+	@echo "  example      - Run basic usage example"
+	@echo "  game         - Run game integration example"
+	@echo "  clean        - Clean build artifacts"
+	@echo "  help         - Show this help"

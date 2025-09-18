@@ -1,78 +1,40 @@
-# Rust/Cargo
-target/
-Cargo.lock
-**/*.rs.bk
-*.pdb
-
-# Lua
-*.luac
-luac.out
-
-# LuaJIT
+# Build artifacts
+polkadot-ffi-subxt/target/
 *.so
 *.dylib
 *.dll
+*.rock
 
-# FFI compiled libraries
-*.a
-*.lib
+# Rust
+Cargo.lock
+**/target/
 
-# Development and testing files
-*.log
-*.tmp
-*.temp
-debug_*
-test_output/
-temp/
+# Lua
+*.luac
+*.lua~
 
-# IDE and editor files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Logs
+*.log
 
-# Build artifacts
-build/
-dist/
-*.o
-*.obj
+# Temporary files
+*.tmp
+*.temp
 
-# Documentation build
-docs/_build/
-site/
-
-# Environment files
+# Environment
 .env
 .env.local
-.env.*.local
 
-# Node modules (if any JS tooling is added)
-node_modules/
-
-# Python (if any Python tooling is added)
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-
-# Backup files
-*.bak
-*.backup
-*~
-
-# Local development
-local/
-private/
-secrets/ 
+# API keys (security)
+*api_key*
+*secret*
