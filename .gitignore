@@ -1,9 +1,14 @@
 # Build artifacts
 polkadot-ffi-subxt/target/
+*.rock
+
+# Compiled libraries (but allow precompiled binaries)
 *.so
 *.dylib
 *.dll
-*.rock
+!precompiled/**/*.so
+!precompiled/**/*.dylib
+!precompiled/**/*.dll
 
 # Rust
 Cargo.lock
