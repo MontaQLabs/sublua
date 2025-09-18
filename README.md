@@ -25,9 +25,11 @@ SubLua can be installed like any other Lua package, similar to `pip install` for
 
 ### Prerequisites
 
-- Lua 5.1+ or LuaJIT
+- **LuaJIT** (required for FFI support)
 - LuaRocks (Lua package manager)
 - Rust and Cargo (for FFI library compilation)
+
+> **Note**: SubLua requires LuaJIT for FFI functionality. Standard Lua is not supported.
 
 ### Quick Install
 

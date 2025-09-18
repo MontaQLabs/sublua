@@ -62,6 +62,45 @@ end
 -- Form candidate paths (relative to this file as well as CWD)
 local this_dir = debug.getinfo(1, "S").source:match("@?(.*/)") or "./"
 
+-- Detect platform and architecture
+local function detect_platform()
+    local os_name = package.config:sub(1,1) == '\\' and 'windows' or 'unix'
+    local arch = nil
+    
+    if os_name == 'windows' then
+        arch = 'x86_64'  -- Assume 64-bit for Windows
+    else
+        -- Try to detect architecture
+        local handle = io.popen("uname -m 2>/dev/null")
+        if handle then
+            arch = handle:read("*l")
+            handle:close()
+        end
+        arch = arch or 'x86_64'  -- fallback
+        
+        -- Map architecture names to our directory structure
+        if arch == 'arm64' then
+            arch = 'aarch64'
+        end
+        
+        -- Detect macOS vs Linux
+        local uname_handle = io.popen("uname -s 2>/dev/null")
+        if uname_handle then
+            local uname = uname_handle:read("*l")
+            uname_handle:close()
+            if uname == 'Darwin' then
+                os_name = 'macos'
+            else
+                os_name = 'linux'
+            end
+        end
+    end
+    
+    return os_name, arch
+end
+
+local os_name, arch = detect_platform()
+
 -- Get LuaRocks installation path
 local function get_luarocks_path()
     local handle = io.popen("luarocks path --lr-path 2>/dev/null")
@@ -77,21 +116,36 @@ end
 
 local luarocks_path = get_luarocks_path()
 
-local candidates = {
-    "polkadot_ffi",                       -- in LD_LIBRARY_PATH / system path
-    "libpolkadot_ffi.so",                 -- likewise
-    "polkadot_ffi.so",                    -- LuaRocks installed name
-    this_dir .. "../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so",
-    this_dir .. "../../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so",
-}
+-- Build candidate paths in order of preference
+local candidates = {}
 
--- Add LuaRocks installation paths
+-- 1. Precompiled binaries (platform-specific)
+local platform_dir = os_name .. "-" .. arch
+local precompiled_path = this_dir .. "../precompiled/" .. platform_dir .. "/"
+if os_name == 'windows' then
+    table.insert(candidates, precompiled_path .. "polkadot_ffi.dll")
+elseif os_name == 'macos' then
+    table.insert(candidates, precompiled_path .. "libpolkadot_ffi.dylib")
+elseif os_name == 'linux' then
+    table.insert(candidates, precompiled_path .. "libpolkadot_ffi.so")
+end
+
+-- 2. System library paths
+table.insert(candidates, "polkadot_ffi")                       -- in LD_LIBRARY_PATH / system path
+table.insert(candidates, "libpolkadot_ffi.so")                 -- likewise
+table.insert(candidates, "polkadot_ffi.so")                    -- LuaRocks installed name
+
+-- 3. LuaRocks installation paths
 if luarocks_path then
     table.insert(candidates, luarocks_path .. "polkadot_ffi.so")
     table.insert(candidates, luarocks_path .. "libpolkadot_ffi.so")
 end
 
--- Add system library paths
+-- 4. Source compilation paths (fallback)
+table.insert(candidates, this_dir .. "../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so")
+table.insert(candidates, this_dir .. "../../polkadot-ffi-subxt/target/release/libpolkadot_ffi.so")
+
+-- 5. System library paths
 local system_paths = {
     "/usr/local/lib/",
     "/usr/lib/",

@@ -80,7 +80,7 @@ pub extern "C" fn derive_sr25519_from_mnemonic(mnemonic_ptr: *const c_char) -> E
                 let json_out = format!("{{\"seed\":\"{}\",\"public\":\"{}\"}}", seed_hex, pub_hex);
                 create_result(true, Some(json_out), None)
             }
-            Err(e) => create_result(false, None, Some(format!("Mnemonic error: {}", e))),
+            Err(e) => create_result(false, None, Some(format!("Mnemonic error: {:?}", e))),
         }
     });
     
@@ -130,7 +130,7 @@ pub extern "C" fn compute_ss58_address(public_key_hex: *const c_char, network_pr
 
                 // Create AccountId32 and encode as SS58
                 let account_id = sp_core::crypto::AccountId32::from(key_array);
-                let ss58_address = account_id.to_ss58check_with_version(network_prefix.into());
+                let ss58_address = account_id.to_ss58check_with_version(sp_core::crypto::Ss58AddressFormat::custom(network_prefix as u16));
                 create_result(true, Some(ss58_address), None)
             }
             Err(e) => create_result(false, None, Some(format!("Hex decode error: {}", e))),
@@ -145,13 +145,13 @@ pub extern "C" fn decode_ss58_address(ss58_address: *const c_char) -> ExtrinsicR
     let result = catch_unwind(|| {
         let address_str = unsafe { CStr::from_ptr(ss58_address).to_string_lossy() };
 
-        match sp_core::crypto::AccountId32::from_ss58check(&address_str) {
-            Ok(account_id) => {
+        match sp_core::crypto::AccountId32::from_ss58check_with_version(&address_str) {
+            Ok((account_id, _)) => {
                 let public_key_bytes: &[u8] = account_id.as_ref();
                 let public_key_hex = hex::encode(public_key_bytes);
                 create_result(true, Some(public_key_hex), None)
             }
-            Err(e) => create_result(false, None, Some(format!("SS58 decode error: {}", e))),
+            Err(e) => create_result(false, None, Some(format!("SS58 decode error: {:?}", e))),
         }
     });
     
@@ -173,7 +173,7 @@ pub extern "C" fn submit_balance_transfer_subxt(
         let dest_address_str = unsafe { CStr::from_ptr(dest_address).to_string_lossy() };
 
         // Parse mnemonic and create keypair
-        let mnemonic = match Mnemonic::parse(&*mnemonic_str) {
+        let mnemonic = match Mnemonic::parse_normalized(&*mnemonic_str) {
             Ok(m) => m,
             Err(e) => return TransferResult {
                 success: false,
@@ -235,7 +235,7 @@ pub extern "C" fn submit_balance_transfer_subxt(
         let result = tokio_rt().block_on(async {
             let progress = client
                 .tx()
-                .sign_and_submit_then_watch_default(&tx, &sender_keypair)
+                .sign_and_submit_then_watch_default(&tx, &sender_keypair, )
                 .await;
             
             match progress {
@@ -359,7 +359,7 @@ pub extern "C" fn download_and_use_metadata(node_url: *const c_char) -> Extrinsi
                 .map_err(|e| format!("Connection error: {}", e))?;
 
             // Get the metadata using the correct method
-            let metadata = api.metadata();
+            let _metadata = api.metadata();
 
             // For now, return basic metadata info
             let metadata_info = "Metadata downloaded successfully".to_string();

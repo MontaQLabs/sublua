@@ -34,6 +34,11 @@ dependencies = {
    "lua-cjson >= 2.1",
    "luasec >= 1.0"
 }
+supported_platforms = {
+   "linux",
+   "macosx", 
+   "windows"
+}
 build = {
    type = "builtin",
    modules = {
@@ -51,6 +56,7 @@ build = {
       "examples",
       "test",
       "docs",
-      "polkadot-ffi-subxt"
+      "polkadot-ffi-subxt",
+      "precompiled"
    }
 }
