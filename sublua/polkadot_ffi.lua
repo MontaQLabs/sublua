@@ -60,6 +60,13 @@ ffi.cdef[[
         size_t* out_len);
 
     void free_encoded_extrinsic(uint8_t* ptr, size_t len);
+    
+    // Metadata functions
+    ExtrinsicResult fetch_chain_metadata(const char* rpc_url);
+    ExtrinsicResult get_metadata_pallets(const char* rpc_url);
+    ExtrinsicResult get_call_index(const char* rpc_url, const char* pallet_name, const char* call_name);
+    ExtrinsicResult get_pallet_calls(const char* rpc_url, const char* pallet_name);
+    ExtrinsicResult check_runtime_compatibility(const char* rpc_url, uint32_t expected_spec_version);
 ]]
 
 -- Detect platform and architecture

@@ -437,6 +437,211 @@ pub extern "C" fn download_and_use_metadata(node_url: *const c_char) -> Extrinsi
 
 // === Tests ===
 
+/// Fetch and parse runtime metadata from a chain
+#[no_mangle]
+pub extern "C" fn fetch_chain_metadata(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let api = OnlineClient::<PolkadotConfig>::from_url(&url).await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            let metadata = api.metadata();
+            
+            // Get runtime version
+            let runtime_version = api.runtime_version();
+            
+            // Create metadata info JSON
+            let metadata_info = serde_json::json!({
+                "spec_version": runtime_version.spec_version,
+                "transaction_version": runtime_version.transaction_version,
+                "pallet_count": metadata.pallets().count(),
+            });
+            
+            Ok::<String, String>(metadata_info.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(json)) => create_result(true, Some(json), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in fetch_chain_metadata".to_string())),
+    }
+}
+
+/// Get all pallets from chain metadata
+#[no_mangle]
+pub extern "C" fn get_metadata_pallets(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let api = OnlineClient::<PolkadotConfig>::from_url(&url).await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            let metadata = api.metadata();
+            
+            // Collect all pallet names
+            let pallets: Vec<String> = metadata.pallets()
+                .map(|p| p.name().to_string())
+                .collect();
+            
+            let pallets_json = serde_json::json!({
+                "pallets": pallets,
+                "count": pallets.len()
+            });
+            
+            Ok::<String, String>(pallets_json.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(json)) => create_result(true, Some(json), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in get_metadata_pallets".to_string())),
+    }
+}
+
+/// Get call index for a specific pallet and call name
+#[no_mangle]
+pub extern "C" fn get_call_index(
+    rpc_url: *const c_char,
+    pallet_name: *const c_char,
+    call_name: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let pallet = unsafe { CStr::from_ptr(pallet_name).to_string_lossy().into_owned() };
+        let call = unsafe { CStr::from_ptr(call_name).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let api = OnlineClient::<PolkadotConfig>::from_url(&url).await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            let metadata = api.metadata();
+            
+            // Find the pallet
+            let pallet_metadata = metadata.pallet_by_name(&pallet)
+                .ok_or_else(|| format!("Pallet '{}' not found", pallet))?;
+            
+            let pallet_index = pallet_metadata.index();
+            
+            // Find the call variant
+            let call_metadata = pallet_metadata.call_variant_by_name(&call)
+                .ok_or_else(|| format!("Call '{}' not found in pallet '{}'", call, pallet))?;
+            
+            let call_index = call_metadata.index;
+            
+            // Return as JSON
+            let index_json = serde_json::json!({
+                "pallet_index": pallet_index,
+                "call_index": call_index,
+                "pallet_name": pallet,
+                "call_name": call
+            });
+            
+            Ok::<String, String>(index_json.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(json)) => create_result(true, Some(json), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in get_call_index".to_string())),
+    }
+}
+
+/// Get all calls for a specific pallet
+#[no_mangle]
+pub extern "C" fn get_pallet_calls(
+    rpc_url: *const c_char,
+    pallet_name: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let pallet = unsafe { CStr::from_ptr(pallet_name).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let api = OnlineClient::<PolkadotConfig>::from_url(&url).await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            let metadata = api.metadata();
+            
+            // Find the pallet
+            let pallet_metadata = metadata.pallet_by_name(&pallet)
+                .ok_or_else(|| format!("Pallet '{}' not found", pallet))?;
+            
+            // Get all call variants
+            let calls: Vec<serde_json::Value> = if let Some(call_variants) = pallet_metadata.call_variants() {
+                call_variants.iter().map(|variant| {
+                    serde_json::json!({
+                        "name": variant.name,
+                        "index": variant.index,
+                        "docs": variant.docs.join(" ")
+                    })
+                }).collect()
+            } else {
+                vec![]
+            };
+            
+            let calls_json = serde_json::json!({
+                "pallet": pallet,
+                "calls": calls,
+                "count": calls.len()
+            });
+            
+            Ok::<String, String>(calls_json.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(json)) => create_result(true, Some(json), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in get_pallet_calls".to_string())),
+    }
+}
+
+/// Check runtime compatibility between two versions
+#[no_mangle]
+pub extern "C" fn check_runtime_compatibility(
+    rpc_url: *const c_char,
+    expected_spec_version: u32,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let api = OnlineClient::<PolkadotConfig>::from_url(&url).await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            let runtime_version = api.runtime_version();
+            let current_version = runtime_version.spec_version;
+            
+            let compatible = current_version == expected_spec_version;
+            
+            let compat_json = serde_json::json!({
+                "compatible": compatible,
+                "current_version": current_version,
+                "expected_version": expected_spec_version,
+                "message": if compatible {
+                    "Runtime versions match"
+                } else {
+                    "Runtime version mismatch - metadata may need updating"
+                }
+            });
+            
+            Ok::<String, String>(compat_json.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(json)) => create_result(true, Some(json), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in check_runtime_compatibility".to_string())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

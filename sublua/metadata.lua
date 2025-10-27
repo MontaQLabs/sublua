@@ -1,10 +1,79 @@
--- sdk/core/metadata.lua
--- Enhanced metadata handling with runtime validation and WASM trap prevention
+-- sublua/metadata.lua
+-- Dynamic metadata handling using subxt FFI for runtime parsing
+
+local ffi_mod = require("sublua.polkadot_ffi")
 
 local Metadata = {}
 
 -- Cache for validated metadata
 local metadata_cache = {}
+local ffi_lib = nil
+
+-- Get the FFI library instance
+local function get_lib()
+    if not ffi_lib then
+        ffi_lib = ffi_mod.get_lib()
+    end
+    return ffi_lib
+end
+
+-- Helper to parse JSON result from FFI
+local function parse_ffi_result(result)
+    if not result.success then
+        local error_msg = ffi_mod.ffi.string(result.error)
+        get_lib().free_string(result.error)
+        return nil, error_msg
+    end
+    
+    local json_str = ffi_mod.ffi.string(result.data)
+    get_lib().free_string(result.data)
+    
+    -- Simple JSON parser
+    local function parse_json(str)
+        -- Remove whitespace
+        str = str:gsub("%s+", "")
+        
+        -- Try to extract key-value pairs
+        local obj = {}
+        for key, value in str:gmatch('"([^"]+)"%s*:%s*([^,}]+)') do
+            -- Try to convert to number
+            local num = tonumber(value)
+            if num then
+                obj[key] = num
+            elseif value == "true" then
+                obj[key] = true
+            elseif value == "false" then
+                obj[key] = false
+            elseif value:sub(1,1) == '"' then
+                obj[key] = value:gsub('"', '')
+            else
+                obj[key] = value
+            end
+        end
+        
+        -- Also try to extract arrays
+        for key in str:gmatch('"([^"]+)"%s*:%s*%[') do
+            local array_start = str:find('"' .. key .. '"%s*:%s*%[')
+            if array_start then
+                local array_end = str:find('%]', array_start)
+                if array_end then
+                    local array_str = str:sub(array_start, array_end)
+                    local arr = {}
+                    for item in array_str:gmatch('"([^"]+)"') do
+                        table.insert(arr, item)
+                    end
+                    if #arr > 0 then
+                        obj[key] = arr
+                    end
+                end
+            end
+        end
+        
+        return obj
+    end
+    
+    return parse_json(json_str), nil
+end
 
 -- Validate call indices against runtime metadata
 function Metadata.validate_call_indices(rpc, spec_name)
@@ -121,17 +190,61 @@ function Metadata.get_balances_transfer_index(spec_name, rpc)
     end
 end
 
--- Enhanced metadata parser (for future use)
-function Metadata.parse_runtime_metadata(metadata_hex)
-    -- This would be a full SCALE decoder for metadata
-    -- For now, we use the validation approach above
-    -- TODO: Implement full metadata parsing
+-- DYNAMIC METADATA FUNCTIONS (using subxt FFI)
+
+--- Fetch and parse runtime metadata from a chain
+function Metadata.fetch_metadata(rpc_url)
+    local result = get_lib().fetch_chain_metadata(rpc_url)
+    return parse_ffi_result(result)
+end
+
+--- Get all pallets from chain metadata
+function Metadata.get_pallets(rpc_url)
+    local result = get_lib().get_metadata_pallets(rpc_url)
+    local data, err = parse_ffi_result(result)
+    if not data then return nil, err end
+    return data.pallets, nil
+end
+
+--- Get call index for a specific pallet and call name (DYNAMIC)
+function Metadata.get_dynamic_call_index(rpc_url, pallet_name, call_name)
+    local result = get_lib().get_call_index(rpc_url, pallet_name, call_name)
+    local data, err = parse_ffi_result(result)
+    if not data then return nil, err end
+    return {tonumber(data.pallet_index), tonumber(data.call_index)}, nil
+end
+
+--- Get all calls for a specific pallet
+function Metadata.get_pallet_calls_list(rpc_url, pallet_name)
+    local result = get_lib().get_pallet_calls(rpc_url, pallet_name)
+    local data, err = parse_ffi_result(result)
+    if not data then return nil, err end
+    return data.calls, nil
+end
+
+--- Check runtime compatibility
+function Metadata.check_compatibility(rpc_url, expected_spec_version)
+    local result = get_lib().check_runtime_compatibility(rpc_url, expected_spec_version)
+    local data, err = parse_ffi_result(result)
+    if not data then return false, err end
+    return data.compatible, data.message
+end
+
+--- Auto-discover call indices from chain (RECOMMENDED for production)
+function Metadata.discover_call_index(rpc_url, pallet_name, call_name)
+    -- Try dynamic discovery first
+    local indices, err = Metadata.get_dynamic_call_index(rpc_url, pallet_name, call_name)
+    if indices then
+        -- Cache it
+        local cache_key = rpc_url .. ":" .. pallet_name .. ":" .. call_name
+        metadata_cache[cache_key] = indices
+        return indices
+    end
     
-    return {
-        version = "v14",  -- Most chains use metadata v14
-        parsed = false,
-        note = "Using validation-based call index detection"
-    }
+    -- Fallback to static indices
+    print("⚠️  Dynamic discovery failed: " .. (err or "unknown error"))
+    print("📋 Falling back to static indices")
+    return Metadata.get_fallback_indices("substrate")[pallet_name]
 end
 
 return Metadata 

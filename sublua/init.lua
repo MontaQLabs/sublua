@@ -21,6 +21,6 @@ M.rpc = function() return require("sublua.rpc") end
 M.chain_config = function() return require("sublua.chain_config") end
 
 -- Version info
-M.version = "0.1.5"
+M.version = "0.1.6"
 
 return M

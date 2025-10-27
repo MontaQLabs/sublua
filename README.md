@@ -14,9 +14,9 @@ SubLua is a high-performance Lua SDK for interacting with Substrate-based blockc
 
 - **Type-Safe Cryptography**: Sr25519 keypair management, signing, and address generation
 - **Transaction Support**: Submit transactions to any Substrate-based blockchain
-- **Chain Metadata**: Dynamic metadata fetching and parsing
-- **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and custom chains
-- **High Performance**: Optimized FFI bindings to Rust libraries
+- **Dynamic Metadata** ✨: Automatic pallet discovery, call index lookup, and runtime compatibility checking via subxt SCALE codec
+- **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and any custom Substrate chain
+- **High Performance**: Optimized FFI bindings to Rust (subxt + sp-core)
 - **Production Ready**: Comprehensive error handling and testing
 
 ## 📦 Installation
@@ -319,6 +319,71 @@ local subscription = rpc:subscribe_events(function(event)
     end
 end)
 ```
+
+## 🔍 Dynamic Metadata (New in v0.1.6!)
+
+SubLua now supports dynamic metadata parsing using subxt's SCALE codec. No more hardcoded call indices!
+
+### Fetch Chain Metadata
+
+```lua
+local metadata = sublua.metadata()
+
+-- Get runtime information
+local info = metadata.fetch_metadata("wss://westend-rpc.polkadot.io")
+print("Spec Version:", info.spec_version)        -- 1020001
+print("Pallet Count:", info.pallet_count)        -- 68
+```
+
+### Discover Pallets
+
+```lua
+-- Get all available pallets
+local pallets = metadata.get_pallets("wss://westend-rpc.polkadot.io")
+-- Returns: ["System", "Balances", "Staking", ...]
+
+for _, pallet_name in ipairs(pallets) do
+    print("Pallet:", pallet_name)
+end
+```
+
+### Dynamic Call Index Lookup
+
+```lua
+-- Automatically discover call indices (no hardcoding!)
+local indices = metadata.get_dynamic_call_index(
+    "wss://westend-rpc.polkadot.io",
+    "Balances",
+    "transfer_keep_alive"
+)
+-- Returns: {4, 3}  -- [pallet_index, call_index]
+
+print("Balances::transfer_keep_alive ->", indices[1], indices[2])
+```
+
+### Runtime Compatibility Check
+
+```lua
+-- Check if runtime version matches expected
+local compatible, message = metadata.check_compatibility(
+    "wss://westend-rpc.polkadot.io",
+    1020001  -- expected spec_version
+)
+
+if compatible then
+    print("✅ Runtime version matches!")
+else
+    print("⚠️ Runtime mismatch:", message)
+end
+```
+
+### Why Dynamic Metadata?
+
+- ✅ **No Hardcoding**: Automatically discovers call indices from any chain
+- ✅ **Future-Proof**: Works with runtime upgrades without code changes
+- ✅ **Custom Chains**: Support any Substrate chain automatically
+- ✅ **SCALE Codec**: Full metadata parsing via subxt (Rust)
+- ✅ **Production Ready**: Used by Polkadot.js and other major tools
 
 ## 🧪 Testing
 
