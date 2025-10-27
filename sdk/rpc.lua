@@ -87,7 +87,7 @@ end
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 
-local metadata = require("sdk.core.metadata")
+local metadata = require("sdk.metadata")
 
 local RPC = {}
 

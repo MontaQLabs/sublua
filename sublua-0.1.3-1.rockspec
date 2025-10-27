@@ -1,8 +1,8 @@
 package = "sublua"
-version = "0.1.2-1"
+version = "0.1.3-1"
 source = {
    url = "git+https://github.com/MontaQLabs/sublua.git",
-   tag = "v0.1.2"
+   tag = "v0.1.3"
 }
 description = {
    summary = "A high-performance Lua SDK for Substrate blockchains",
@@ -42,15 +42,15 @@ supported_platforms = {
 build = {
    type = "builtin",
    modules = {
-      ["sdk.init"] = "sdk/init.lua",
-      ["sdk.rpc"] = "sdk/core/rpc.lua",
-      ["sdk.signer"] = "sdk/core/signer.lua",
-      ["sdk.chain_config"] = "sdk/core/chain_config.lua",
-      ["sdk.extrinsic_builder"] = "sdk/core/extrinsic_builder.lua",
-      ["sdk.extrinsic"] = "sdk/core/extrinsic.lua",
-      ["sdk.metadata"] = "sdk/core/metadata.lua",
-      ["sdk.util"] = "sdk/core/util.lua",
-      ["sdk.polkadot_ffi"] = "sdk/polkadot_ffi.lua"
+      ["sublua"] = "sdk/init.lua",
+      ["sublua.rpc"] = "sdk/rpc.lua",
+      ["sublua.signer"] = "sdk/signer.lua",
+      ["sublua.chain_config"] = "sdk/chain_config.lua",
+      ["sublua.extrinsic_builder"] = "sdk/extrinsic_builder.lua",
+      ["sublua.extrinsic"] = "sdk/extrinsic.lua",
+      ["sublua.metadata"] = "sdk/metadata.lua",
+      ["sublua.util"] = "sdk/util.lua",
+      ["sublua.polkadot_ffi"] = "sdk/polkadot_ffi.lua"
    },
    copy_directories = {
       "examples",

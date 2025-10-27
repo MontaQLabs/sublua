@@ -3,7 +3,7 @@
 local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
 local lib  = ffi_mod.lib
-local util = require("sdk.core.util")
+local util = require("sdk.util")
 
 local Signer = {}
 Signer.__index = Signer

@@ -21,19 +21,48 @@ SubLua is a high-performance Lua SDK for interacting with Substrate-based blockc
 
 ## 📦 Installation
 
-SubLua can be installed like any other Lua package, similar to `pip install` for Python.
+SubLua follows a clean installation flow similar to `pip install` for Python.
 
 ### Prerequisites
 
 - **LuaJIT** (required for FFI support)
 - LuaRocks (Lua package manager)
-- Rust and Cargo (for FFI library compilation)
 
 > **Note**: SubLua requires LuaJIT for FFI functionality. Standard Lua is not supported.
 
-### Quick Install
+### Clean Installation Flow
 
-#### Option 1: Automated Install Script (Recommended)
+#### Step 1: Install Sublua SDK
+```bash
+# Install Sublua via LuaRocks
+luarocks install sublua
+```
+
+#### Step 2: Download FFI Library
+```bash
+# Download the appropriate FFI library for your platform
+./download_ffi.sh
+```
+
+#### Step 3: Use Sublua in Your Code
+```lua
+-- Load Sublua SDK
+local sublua = require("sublua")
+
+-- Load FFI library (auto-detects platform)
+sublua.ffi()
+
+-- Or specify path directly
+sublua.ffi("./precompiled/macos-aarch64/libpolkadot_ffi.dylib")
+
+-- Start using Sublua
+local signer = sublua.signer().new()
+local rpc = sublua.rpc().new("wss://rpc.polkadot.io")
+```
+
+### Alternative Installation Methods
+
+#### Option 1: Automated Install Script
 ```bash
 # Clone and install with one command
 git clone https://github.com/MontaQLabs/sublua.git
@@ -42,41 +71,21 @@ chmod +x install.sh
 ./install.sh
 ```
 
-#### Option 2: Using LuaRocks (Standard Package Manager)
+#### Option 2: Manual Compilation
 ```bash
-# Install dependencies
-luarocks install luasocket lua-cjson luasec
-
-# Install SubLua
-luarocks install sublua-scm-0.rockspec
-```
-
-#### Option 3: Using Makefile
-```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/MontaQLabs/sublua.git
 cd sublua
 
-# Install with one command
-make install
-```
-
-#### Option 4: Manual Installation
-```bash
-# Clone the repository
-git clone https://github.com/MontaQLabs/sublua.git
-cd sublua
-
-# Build the FFI library
+# Build FFI library
 cd polkadot-ffi-subxt
 cargo build --release
-cd ..
 
 # Install Lua dependencies
 luarocks install luasocket lua-cjson luasec
 
 # Install SubLua
-luarocks install sublua-scm-0.rockspec
+luarocks make sublua-0.1.2-1.rockspec
 ```
 
 > 📖 **Detailed Installation Guide**: See [INSTALL.md](INSTALL.md) for comprehensive installation instructions, troubleshooting, and platform-specific setup.

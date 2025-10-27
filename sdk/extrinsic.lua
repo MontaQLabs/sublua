@@ -4,7 +4,7 @@ local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
 local lib  = ffi_mod.lib
 local bit  = require("bit")
-local util = require("sdk.core.util")
+local util = require("sdk.util")
 
 local Extrinsic = {}
 Extrinsic.__index = Extrinsic

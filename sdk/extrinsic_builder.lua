@@ -1,8 +1,8 @@
 -- sdk/core/extrinsic_builder.lua
 -- High-level extrinsic builder with automatic call index resolution
 
-local extrinsic = require("sdk.core.extrinsic")
-local metadata = require("sdk.core.metadata")
+local extrinsic = require("sdk.extrinsic")
+local metadata = require("sdk.metadata")
 
 local ExtrinsicBuilder = {}
 
