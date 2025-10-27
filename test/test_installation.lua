@@ -11,35 +11,35 @@ local function test_installation()
         {
             name = "SDK Loading",
             test = function()
-                local sdk = require("sdk.init")
+                local sdk = require("sublua")
                 return sdk ~= nil
             end
         },
         {
             name = "FFI Library Loading",
             test = function()
-                local ffi = require("sdk.polkadot_ffi")
+                local ffi = require("sublua.polkadot_ffi")
                 return ffi ~= nil and ffi.lib ~= nil
             end
         },
         {
             name = "RPC Module",
             test = function()
-                local rpc = require("sdk.rpc")
+                local rpc = require("sublua.rpc")
                 return rpc ~= nil
             end
         },
         {
             name = "Signer Module",
             test = function()
-                local signer = require("sdk.signer")
+                local signer = require("sublua.signer")
                 return signer ~= nil
             end
         },
         {
             name = "Chain Config Module",
             test = function()
-                local config = require("sdk.chain_config")
+                local config = require("sublua.chain_config")
                 return config ~= nil
             end
         }

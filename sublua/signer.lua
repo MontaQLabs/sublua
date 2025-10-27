@@ -1,8 +1,8 @@
--- sdk/core/signer.lua
+-- sublua/signer.lua
 
-local ffi_mod = require("sdk.polkadot_ffi")
+local ffi_mod = require("sublua.polkadot_ffi")
 local ffi  = ffi_mod.ffi
-local util = require("sdk.util")
+local util = require("sublua.util")
 
 -- Get the FFI library instance
 local function get_lib()

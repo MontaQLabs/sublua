@@ -87,7 +87,7 @@ end
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 
-local metadata = require("sdk.metadata")
+local metadata = require("sublua.metadata")
 
 local RPC = {}
 

@@ -1,8 +1,8 @@
 -- test/run_tests.lua
 -- Comprehensive test suite for SubLua SDK
 
-local sdk = require("sdk.init")
-local polkadot_ffi = require("sdk.polkadot_ffi")
+local sdk = require("sublua")
+local polkadot_ffi = require("sublua.polkadot_ffi")
 
 -- Load FFI library first
 sdk.ffi()
