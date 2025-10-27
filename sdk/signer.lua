@@ -2,8 +2,12 @@
 
 local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
-local lib  = ffi_mod.lib
 local util = require("sdk.util")
+
+-- Get the FFI library instance
+local function get_lib()
+    return ffi_mod.get_lib()
+end
 
 local Signer = {}
 Signer.__index = Signer
@@ -42,30 +46,30 @@ function Signer.from_mnemonic(mnemonic)
     
     local c_str = ffi.new("char[?]", #mnemonic + 1)
     ffi.copy(c_str, mnemonic)
-    local result = lib.derive_sr25519_from_mnemonic(c_str)
+    local result = get_lib().derive_sr25519_from_mnemonic(c_str)
     
     if not result.success then
         local err_msg = ffi.string(result.error)
-        lib.free_string(result.error)
+        get_lib().free_string(result.error)
         error("Mnemonic derivation failed: " .. err_msg)
     end
     
     local json_str = ffi.string(result.data)
-    lib.free_string(result.data)
+    get_lib().free_string(result.data)
     
-    -- Parse JSON result
-    local ok, tbl = pcall(require("cjson").decode, json_str)
-    if not ok then 
-        -- Try with dkjson as fallback
-        ok, tbl = pcall(require("dkjson").decode, json_str)
-        if not ok then
-            error("Failed to decode derivation JSON: " .. tostring(tbl))
-        end
+    -- Parse JSON result (simple manual parsing to avoid cjson dependency)
+    local seed_hex = json_str:match('"seed"%s*:%s*"([^"]+)"')
+    local public_hex = json_str:match('"public"%s*:%s*"([^"]+)"')
+    
+    if not seed_hex or seed_hex == "" then
+        error("Seed not found in derivation result")
     end
     
-    local signer = Signer.new(tbl.seed)
-    signer._public_override = ensure_hex_prefix(tbl.public)
-    return signer, tbl -- returns signer and key info
+    local signer = Signer.new(seed_hex)
+    if public_hex then
+        signer._public_override = ensure_hex_prefix(public_hex)
+    end
+    return signer
 end
 
 --- Sign an extrinsic hex string, returns signature hex.
@@ -81,14 +85,14 @@ function Signer:sign(extrinsic_hex)
         error("Invalid extrinsic hex format: " .. extrinsic_hex)
     end
 
-    local result = lib.sign_extrinsic(self.seed, extrinsic_hex)
+    local result = get_lib().sign_extrinsic(self.seed, extrinsic_hex)
     if not result.success then
         local msg = ffi.string(result.error)
-        lib.free_string(result.error)
+        get_lib().free_string(result.error)
         error("sign_extrinsic failed: " .. msg)
     end
     local sig_hex = ffi.string(result.data)
-    lib.free_string(result.data)
+    get_lib().free_string(result.data)
     return ensure_hex_prefix(sig_hex)
 end
 
@@ -98,14 +102,14 @@ function Signer:get_public_key()
         return self._public_override
     end
     
-    local result = lib.derive_sr25519_public_key(ensure_hex_prefix(self.seed))
+    local result = get_lib().derive_sr25519_public_key(ensure_hex_prefix(self.seed))
     if result.success then
         local data = ffi.string(result.data)
-        lib.free_string(result.data)
+        get_lib().free_string(result.data)
         return ensure_hex_prefix(data)
     else
         local error_msg = ffi.string(result.error)
-        lib.free_string(result.error)
+        get_lib().free_string(result.error)
         error("Failed to derive public key: " .. error_msg)
     end
 end
@@ -116,15 +120,15 @@ function Signer:get_ss58_address(network_prefix)
     network_prefix = network_prefix or 42  -- Default to Substrate generic (42), not chain-specific
     
     local public_key = self:get_public_key()
-    local result = lib.compute_ss58_address(public_key, network_prefix)
+    local result = get_lib().compute_ss58_address(public_key, network_prefix)
     
     if result.success then
         local address = ffi.string(result.data)
-        lib.free_string(result.data)
+        get_lib().free_string(result.data)
         return address
     else
         local error_msg = ffi.string(result.error)
-        lib.free_string(result.error)
+        get_lib().free_string(result.error)
         error("Failed to compute SS58 address: " .. error_msg)
     end
 end

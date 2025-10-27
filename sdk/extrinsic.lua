@@ -2,9 +2,13 @@
 
 local ffi_mod = require("sdk.polkadot_ffi")
 local ffi  = ffi_mod.ffi
-local lib  = ffi_mod.lib
 local bit  = require("bit")
 local util = require("sdk.util")
+
+-- Get the FFI library instance
+local function get_lib()
+    return ffi_mod.get_lib()
+end
 
 local Extrinsic = {}
 Extrinsic.__index = Extrinsic
@@ -58,12 +62,12 @@ function Extrinsic:encode_unsigned()
     local out_ptr    = ffi.new("uint8_t*[1]")
     local out_len    = ffi.new("size_t[1]")
 
-    local ret = lib.encode_unsigned_extrinsic(self.call_index[1], self.call_index[2],
+    local ret = get_lib().encode_unsigned_extrinsic(self.call_index[1], self.call_index[2],
                                               data_buf, #data_bytes, out_ptr, out_len)
     assert(ret == 0, "encode_unsigned_extrinsic failed (code "..ret..")")
 
     local result = ffi.string(out_ptr[0], out_len[0])
-    lib.free_encoded_extrinsic(out_ptr[0], out_len[0])
+    get_lib().free_encoded_extrinsic(out_ptr[0], out_len[0])
     return "0x" .. util.bytes_to_hex{string.byte(result,1,#result)}
 end
 
@@ -85,7 +89,7 @@ function Extrinsic:encode_signed(signature, public_key, transaction_version)
     local out_ptr = ffi.new("uint8_t*[1]")
     local out_len = ffi.new("size_t[1]")
 
-    local ret = lib.encode_signed_extrinsic(self.call_index[1], self.call_index[2],
+    local ret = get_lib().encode_signed_extrinsic(self.call_index[1], self.call_index[2],
                                             data_buf, #data_bytes,
                                             pub_buf, sig_buf,
                                             self.nonce,
@@ -96,7 +100,7 @@ function Extrinsic:encode_signed(signature, public_key, transaction_version)
     assert(ret == 0, "encode_signed_extrinsic failed (code "..ret..")")
 
     local result = ffi.string(out_ptr[0], out_len[0])
-    lib.free_encoded_extrinsic(out_ptr[0], out_len[0])
+    get_lib().free_encoded_extrinsic(out_ptr[0], out_len[0])
     return "0x" .. util.bytes_to_hex{string.byte(result,1,#result)}
 end
 

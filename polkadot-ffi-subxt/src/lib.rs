@@ -160,6 +160,66 @@ pub extern "C" fn decode_ss58_address(ss58_address: *const c_char) -> ExtrinsicR
 
 // === Subxt-based Transaction Functions ===
 
+/// Query account balance from a Substrate node
+#[no_mangle]
+pub extern "C" fn query_balance(
+    node_url: *const c_char,
+    address: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let node_url_str = unsafe { CStr::from_ptr(node_url).to_string_lossy() };
+        let address_str = unsafe { CStr::from_ptr(address).to_string_lossy() };
+
+        // Parse address
+        let account_id = match subxt::utils::AccountId32::from_str(&address_str) {
+            Ok(addr) => addr,
+            Err(e) => return create_result(false, None, Some(format!("Address error: {}", e))),
+        };
+
+        // Connect to the node
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&node_url_str).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return create_result(false, None, Some(format!("Connection error: {}", e))),
+        };
+
+        // Query account info
+        let result: Result<Option<String>, subxt::Error> = tokio_rt().block_on(async {
+            // Create storage address for System.Account
+            let storage_address = subxt::dynamic::storage(
+                "System",
+                "Account",
+                vec![Value::from_bytes(account_id.0.to_vec())],
+            );
+            
+            let account_data = client.storage().at_latest().await?.fetch(&storage_address).await?;
+            
+            if let Some(data) = account_data {
+                // Decode the account data value
+                let value = data.to_value()?;
+                Ok(Some(format!("{:?}", value)))
+            } else {
+                Ok(None)
+            }
+        });
+
+        match result {
+            Ok(Some(json)) => {
+                create_result(true, Some(json), None)
+            },
+            Ok(None) => {
+                // Account doesn't exist
+                create_result(true, Some(String::from("{\"free\":0,\"reserved\":0,\"frozen\":0}")), None)
+            },
+            Err(e) => create_result(false, None, Some(format!("Query error: {}", e))),
+        }
+    });
+
+    result.unwrap_or_else(|_| create_result(false, None, Some(String::from("Panic occurred"))))
+}
+
+/// Submit a balance transfer transaction
 #[no_mangle]
 pub extern "C" fn submit_balance_transfer_subxt(
     node_url: *const c_char,

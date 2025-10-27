@@ -21,6 +21,6 @@ M.rpc = function() return require("sdk.rpc") end
 M.chain_config = function() return require("sdk.chain_config") end
 
 -- Version info
-M.version = "0.1.3"
+M.version = "0.1.4"
 
 return M

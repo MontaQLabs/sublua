@@ -11,6 +11,12 @@ ffi.cdef[[
         char* data;   // allocated C string (hex encoded)
         char* error;  // allocated C string on failure
     } ExtrinsicResult;
+    
+    typedef struct {
+        bool success;
+        char* tx_hash; // allocated C string (transaction hash)
+        char* error;   // allocated C string on failure
+    } TransferResult;
 
     /* Signing */
     ExtrinsicResult sign_extrinsic(const char* seed_hex, const char* extrinsic_hex);
@@ -20,6 +26,12 @@ ffi.cdef[[
     ExtrinsicResult derive_sr25519_from_mnemonic(const char* mnemonic);
     ExtrinsicResult blake2_128_hash(const char* data);
     void            free_string(char* ptr);
+    
+    /* Balance Query */
+    ExtrinsicResult query_balance(const char* node_url, const char* address);
+    
+    /* Balance Transfer */
+    TransferResult submit_balance_transfer_subxt(const char* node_url, const char* mnemonic, const char* dest_address, unsigned long long amount);
 
     /* SCALE / Extrinsics */
     int encode_unsigned_extrinsic(

@@ -45,6 +45,8 @@ luarocks install sublua
 ```
 
 #### Step 3: Use Sublua in Your Code
+
+**Basic Usage:**
 ```lua
 -- Load Sublua SDK
 local sublua = require("sublua")
@@ -52,12 +54,56 @@ local sublua = require("sublua")
 -- Load FFI library (auto-detects platform)
 sublua.ffi()
 
--- Or specify path directly
-sublua.ffi("./precompiled/macos-aarch64/libpolkadot_ffi.dylib")
+-- Create a signer from seed
+local seed = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+local signer = sublua.signer().new(seed)
 
--- Start using Sublua
-local signer = sublua.signer().new()
-local rpc = sublua.rpc().new("wss://rpc.polkadot.io")
+-- Generate address for any chain
+local polkadot_address = signer:get_ss58_address(0)  -- Polkadot
+local kusama_address = signer:get_ss58_address(2)    -- Kusama
+local westend_address = signer:get_ss58_address(42)  -- Westend
+
+print("Polkadot:", polkadot_address)
+```
+
+**Custom FFI Path:**
+```lua
+local sublua = require("sublua")
+
+-- Specify custom FFI library path
+sublua.ffi("./path/to/your/libpolkadot_ffi.dylib")
+
+-- Or use auto-detection
+sublua.ffi()  -- Automatically finds the right library for your platform
+```
+
+**Complete Example - Query Balance:**
+```lua
+local sublua = require("sublua")
+local polkadot_ffi = require("sublua.polkadot_ffi")
+
+-- Load FFI
+sublua.ffi()
+
+-- Query balance from Polkadot
+local ffi = polkadot_ffi.ffi
+local ffi_lib = polkadot_ffi.get_lib()
+
+local node_url = "wss://rpc.polkadot.io"
+local address = "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB"
+
+local url_cstr = ffi.new("char[?]", #node_url + 1)
+ffi.copy(url_cstr, node_url)
+
+local addr_cstr = ffi.new("char[?]", #address + 1)
+ffi.copy(addr_cstr, address)
+
+local result = ffi_lib.query_balance(url_cstr, addr_cstr)
+if result.success then
+    local data = ffi.string(result.data)
+    ffi_lib.free_string(result.data)
+    print("Balance:", data)
+end
 ```
 
 ### Alternative Installation Methods
@@ -91,6 +137,60 @@ luarocks make sublua-0.1.2-1.rockspec
 > 📖 **Detailed Installation Guide**: See [INSTALL.md](INSTALL.md) for comprehensive installation instructions, troubleshooting, and platform-specific setup.
 > 
 > 🚀 **Publishing Guide**: See [PUBLISHING.md](PUBLISHING.md) for instructions on publishing SubLua to LuaRocks repository.
+
+## 🚀 Quick Reference
+
+### Custom FFI Path Options
+
+Sublua automatically detects your platform and loads the correct FFI library, but you can specify a custom path:
+
+```lua
+-- Option 1: Auto-detect (recommended)
+sublua.ffi()
+
+-- Option 2: Custom path
+sublua.ffi("./custom/path/libpolkadot_ffi.dylib")
+
+-- Option 3: Environment-specific
+if os.getenv("SUBLUA_FFI_PATH") then
+    sublua.ffi(os.getenv("SUBLUA_FFI_PATH"))
+else
+    sublua.ffi()  -- fallback to auto-detect
+end
+```
+
+### Common Operations
+
+**Create Signer:**
+```lua
+-- From seed
+local signer = sublua.signer().new("0x...")
+
+-- From mnemonic
+local signer = sublua.signer().from_mnemonic("word word word...")
+```
+
+**Generate Addresses:**
+```lua
+local polkadot = signer:get_ss58_address(0)   -- Polkadot
+local kusama = signer:get_ss58_address(2)     -- Kusama
+local westend = signer:get_ss58_address(42)   -- Westend
+```
+
+**Query Balance:**
+```lua
+local result = ffi_lib.query_balance(node_url_cstr, address_cstr)
+```
+
+**Submit Transfer:**
+```lua
+local result = ffi_lib.submit_balance_transfer_subxt(
+    node_url_cstr, 
+    mnemonic_cstr, 
+    dest_addr_cstr, 
+    amount
+)
+```
 
 ## 🛠️ Development Commands
 
