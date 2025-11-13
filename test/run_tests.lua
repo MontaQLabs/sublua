@@ -106,9 +106,13 @@ run_test("Balance Query via FFI", function()
         local data_str = ffi.string(result.data)
         ffi_lib.free_string(result.data)
         
-        local free_match = data_str:match('U128%((%d+)%)')
-        assert(free_match ~= nil, "Should extract balance value")
-        print("   Balance query successful!")
+        -- Try multiple balance formats (U128(...) or plain numbers)
+        local free_match = data_str:match('U128%((%d+)%)') or 
+                          data_str:match('"free"%s*:%s*"?(%d+)"?') or
+                          data_str:match('"free"%s*:%s*(%d+)')
+        
+        assert(free_match ~= nil, "Should extract balance value. Got: " .. data_str)
+        print("   Balance query successful! Free balance: " .. free_match)
     else
         local err_str = ffi.string(result.error)
         ffi_lib.free_string(result.error)
