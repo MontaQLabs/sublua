@@ -435,6 +435,738 @@ pub extern "C" fn download_and_use_metadata(node_url: *const c_char) -> Extrinsi
     result.unwrap_or_else(|_| create_result(false, None, Some("Panic occurred".to_string())))
 }
 
+// === Advanced Cryptographic Features ===
+
+/// Multi-signature account operations
+#[no_mangle]
+pub extern "C" fn create_multisig_address(
+    signatories_json: *const c_char,  // JSON array of SS58 addresses
+    threshold: u16,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let signatories_str = unsafe { CStr::from_ptr(signatories_json).to_string_lossy() };
+        
+        // Parse JSON array of addresses
+        let signatories: Vec<String> = match serde_json::from_str(&signatories_str) {
+            Ok(s) => s,
+            Err(e) => return create_result(false, None, Some(format!("JSON parse error: {}", e))),
+        };
+        
+        // Convert to AccountId32
+        let mut account_ids: Vec<subxt::utils::AccountId32> = Vec::new();
+        for addr in signatories {
+            match subxt::utils::AccountId32::from_str(&addr) {
+                Ok(id) => account_ids.push(id),
+                Err(e) => return create_result(false, None, Some(format!("Invalid address {}: {}", addr, e))),
+            }
+        }
+        
+        // Sort signatories (required by Substrate multisig)
+        account_ids.sort();
+        
+        // Create multisig address using sp_runtime::MultiSigner logic
+        // The multisig address is derived from: blake2_256(b"modlpy/utilisuba" ++ threshold ++ signatories)
+        let mut data = b"modlpy/utilisuba".to_vec();
+        data.extend_from_slice(&threshold.to_le_bytes());
+        for id in &account_ids {
+            data.extend_from_slice(id.as_ref());
+        }
+        
+        let hash = sp_core::blake2_256(&data);
+        let multisig_account = subxt::utils::AccountId32::from(hash);
+        
+        // Return multisig info as JSON
+        let multisig_info = serde_json::json!({
+            "multisig_address": multisig_account.to_string(),
+            "threshold": threshold,
+            "signatories": account_ids.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+        });
+        
+        create_result(true, Some(multisig_info.to_string()), None)
+    });
+    
+    result.unwrap_or_else(|_| create_result(false, None, Some("Panic in create_multisig_address".to_string())))
+}
+
+/// Proxy account operations - Add a proxy
+#[no_mangle]
+pub extern "C" fn add_proxy(
+    rpc_url: *const c_char,
+    mnemonic: *const c_char,
+    delegate: *const c_char,
+    proxy_type: *const c_char,  // "Any", "NonTransfer", "Governance", etc.
+    delay: u32,  // Block delay (0 for no delay)
+) -> TransferResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let mnem_str = unsafe { CStr::from_ptr(mnemonic).to_string_lossy().into_owned() };
+        let delegate_str = unsafe { CStr::from_ptr(delegate).to_string_lossy().into_owned() };
+        let proxy_type_str = unsafe { CStr::from_ptr(proxy_type).to_string_lossy().into_owned() };
+        
+        // Parse mnemonic and create keypair
+        let mnemonic = match Mnemonic::parse_normalized(&mnem_str) {
+            Ok(m) => m,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Mnemonic error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let signer = match Keypair::from_phrase(&mnemonic, None) {
+            Ok(kp) => kp,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Keypair error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // Parse delegate address
+        let delegate_account = match subxt::utils::AccountId32::from_str(&delegate_str) {
+            Ok(d) => d,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Address error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // Connect to node
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Connection error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // Create proxy type variant (using dynamic API)
+        let proxy_type_value = Value::variant(proxy_type_str.as_str(), Composite::unnamed(vec![]));
+        
+        // Build the add_proxy call
+        let tx = tx::dynamic(
+            "Proxy",
+            "add_proxy",
+            vec![
+                Value::variant("Id", Composite::unnamed(vec![Value::from_bytes(delegate_account.0.to_vec())])),
+                proxy_type_value,
+                Value::u128(delay as u128),
+            ],
+        );
+        
+        // Submit transaction
+        let result = tokio_rt().block_on(async {
+            let progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &signer)
+                .await;
+            
+            match progress {
+                Ok(progress) => {
+                    let events = progress.wait_for_finalized_success().await;
+                    match events {
+                        Ok(events) => {
+                            let tx_hash = events.extrinsic_hash();
+                            Ok(format!("0x{}", hex::encode(tx_hash.0)))
+                        },
+                        Err(e) => Err(format!("Finalization error: {}", e)),
+                    }
+                },
+                Err(e) => Err(format!("Submit error: {}", e)),
+            }
+        });
+        
+        match result {
+            Ok(tx_hash) => TransferResult {
+                success: true,
+                tx_hash: CString::new(tx_hash).unwrap().into_raw(),
+                error: std::ptr::null_mut(),
+            },
+            Err(e) => TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(e).unwrap().into_raw(),
+            },
+        }
+    });
+    
+    result.unwrap_or_else(|_| TransferResult {
+        success: false,
+        tx_hash: std::ptr::null_mut(),
+        error: CString::new("Panic in add_proxy".to_string()).unwrap().into_raw(),
+    })
+}
+
+/// Remove a proxy
+#[no_mangle]
+pub extern "C" fn remove_proxy(
+    rpc_url: *const c_char,
+    mnemonic: *const c_char,
+    delegate: *const c_char,
+    proxy_type: *const c_char,
+    delay: u32,
+) -> TransferResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let mnem_str = unsafe { CStr::from_ptr(mnemonic).to_string_lossy().into_owned() };
+        let delegate_str = unsafe { CStr::from_ptr(delegate).to_string_lossy().into_owned() };
+        let proxy_type_str = unsafe { CStr::from_ptr(proxy_type).to_string_lossy().into_owned() };
+        
+        let mnemonic = match Mnemonic::parse_normalized(&mnem_str) {
+            Ok(m) => m,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Mnemonic error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let signer = match Keypair::from_phrase(&mnemonic, None) {
+            Ok(kp) => kp,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Keypair error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let delegate_account = match subxt::utils::AccountId32::from_str(&delegate_str) {
+            Ok(d) => d,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Address error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Connection error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let proxy_type_value = Value::variant(proxy_type_str.as_str(), Composite::unnamed(vec![]));
+        
+        let tx = tx::dynamic(
+            "Proxy",
+            "remove_proxy",
+            vec![
+                Value::variant("Id", Composite::unnamed(vec![Value::from_bytes(delegate_account.0.to_vec())])),
+                proxy_type_value,
+                Value::u128(delay as u128),
+            ],
+        );
+        
+        let result = tokio_rt().block_on(async {
+            let progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &signer)
+                .await;
+            
+            match progress {
+                Ok(progress) => {
+                    let events = progress.wait_for_finalized_success().await;
+                    match events {
+                        Ok(events) => {
+                            let tx_hash = events.extrinsic_hash();
+                            Ok(format!("0x{}", hex::encode(tx_hash.0)))
+                        },
+                        Err(e) => Err(format!("Finalization error: {}", e)),
+                    }
+                },
+                Err(e) => Err(format!("Submit error: {}", e)),
+            }
+        });
+        
+        match result {
+            Ok(tx_hash) => TransferResult {
+                success: true,
+                tx_hash: CString::new(tx_hash).unwrap().into_raw(),
+                error: std::ptr::null_mut(),
+            },
+            Err(e) => TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(e).unwrap().into_raw(),
+            },
+        }
+    });
+    
+    result.unwrap_or_else(|_| TransferResult {
+        success: false,
+        tx_hash: std::ptr::null_mut(),
+        error: CString::new("Panic in remove_proxy".to_string()).unwrap().into_raw(),
+    })
+}
+
+/// Execute a call through a proxy
+#[no_mangle]
+pub extern "C" fn proxy_call(
+    rpc_url: *const c_char,
+    proxy_mnemonic: *const c_char,  // The proxy account's mnemonic
+    real_account: *const c_char,    // The real account we're acting on behalf of
+    pallet_name: *const c_char,
+    call_name: *const c_char,
+    call_args_json: *const c_char,  // JSON encoded call arguments
+) -> TransferResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let mnem_str = unsafe { CStr::from_ptr(proxy_mnemonic).to_string_lossy().into_owned() };
+        let real_str = unsafe { CStr::from_ptr(real_account).to_string_lossy().into_owned() };
+        let pallet = unsafe { CStr::from_ptr(pallet_name).to_string_lossy().into_owned() };
+        let call = unsafe { CStr::from_ptr(call_name).to_string_lossy().into_owned() };
+        let args_json = unsafe { CStr::from_ptr(call_args_json).to_string_lossy().into_owned() };
+        
+        let mnemonic = match Mnemonic::parse_normalized(&mnem_str) {
+            Ok(m) => m,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Mnemonic error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let signer = match Keypair::from_phrase(&mnemonic, None) {
+            Ok(kp) => kp,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Keypair error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let real_account_id = match subxt::utils::AccountId32::from_str(&real_str) {
+            Ok(d) => d,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Address error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // Parse call arguments (simplified - in production you'd want better arg parsing)
+        let _call_args: serde_json::Value = match serde_json::from_str(&args_json) {
+            Ok(args) => args,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Args parse error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Connection error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // For simplicity, this example implements a balance transfer through proxy
+        // In production, you'd want to support arbitrary calls
+        if pallet == "Balances" && call == "transfer_keep_alive" {
+            // Parse destination and amount from args_json
+            let args: serde_json::Value = serde_json::from_str(&args_json).unwrap();
+            let dest_str = args["dest"].as_str().unwrap_or("");
+            let amount = args["amount"].as_u64().unwrap_or(0) as u128;
+            
+            let dest = match subxt::utils::AccountId32::from_str(dest_str) {
+                Ok(d) => d,
+                Err(e) => return TransferResult {
+                    success: false,
+                    tx_hash: std::ptr::null_mut(),
+                    error: CString::new(format!("Dest address error: {}", e)).unwrap().into_raw(),
+                },
+            };
+            
+            // Create the inner transfer call
+            let inner_call = tx::dynamic(
+                "Balances",
+                "transfer_keep_alive",
+                vec![
+                    Value::variant("Id", Composite::unnamed(vec![Value::from_bytes(dest.0.to_vec())])),
+                    Value::u128(amount),
+                ],
+            );
+            
+            // Encode the inner call
+            let encoded_call = client.tx().call_data(&inner_call).unwrap();
+            
+            // Create the proxy call
+            let proxy_tx = tx::dynamic(
+                "Proxy",
+                "proxy",
+                vec![
+                    Value::variant("Id", Composite::unnamed(vec![Value::from_bytes(real_account_id.0.to_vec())])),
+                    Value::variant("None", Composite::unnamed(vec![])),  // force_proxy_type = None
+                    Value::unnamed_composite(vec![Value::from_bytes(encoded_call)]),
+                ],
+            );
+            
+            let result = tokio_rt().block_on(async {
+                let progress = client
+                    .tx()
+                    .sign_and_submit_then_watch_default(&proxy_tx, &signer)
+                    .await;
+                
+                match progress {
+                    Ok(progress) => {
+                        let events = progress.wait_for_finalized_success().await;
+                        match events {
+                            Ok(events) => {
+                                let tx_hash = events.extrinsic_hash();
+                                Ok(format!("0x{}", hex::encode(tx_hash.0)))
+                            },
+                            Err(e) => Err(format!("Finalization error: {}", e)),
+                        }
+                    },
+                    Err(e) => Err(format!("Submit error: {}", e)),
+                }
+            });
+            
+            match result {
+                Ok(tx_hash) => TransferResult {
+                    success: true,
+                    tx_hash: CString::new(tx_hash).unwrap().into_raw(),
+                    error: std::ptr::null_mut(),
+                },
+                Err(e) => TransferResult {
+                    success: false,
+                    tx_hash: std::ptr::null_mut(),
+                    error: CString::new(e).unwrap().into_raw(),
+                },
+            }
+        } else {
+            TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new("Unsupported pallet/call for proxy - currently only supports Balances::transfer_keep_alive".to_string()).unwrap().into_raw(),
+            }
+        }
+    });
+    
+    result.unwrap_or_else(|_| TransferResult {
+        success: false,
+        tx_hash: std::ptr::null_mut(),
+        error: CString::new("Panic in proxy_call".to_string()).unwrap().into_raw(),
+    })
+}
+
+/// Query proxies for an account
+#[no_mangle]
+pub extern "C" fn query_proxies(
+    rpc_url: *const c_char,
+    account: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let account_str = unsafe { CStr::from_ptr(account).to_string_lossy().into_owned() };
+        
+        let account_id = match subxt::utils::AccountId32::from_str(&account_str) {
+            Ok(id) => id,
+            Err(e) => return create_result(false, None, Some(format!("Address error: {}", e))),
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return create_result(false, None, Some(format!("Connection error: {}", e))),
+        };
+        
+        let result: Result<Option<String>, subxt::Error> = tokio_rt().block_on(async {
+            let storage_address = subxt::dynamic::storage(
+                "Proxy",
+                "Proxies",
+                vec![Value::from_bytes(account_id.0.to_vec())],
+            );
+            
+            let proxies_data = client.storage().at_latest().await?.fetch(&storage_address).await?;
+            
+            if let Some(data) = proxies_data {
+                let value = data.to_value()?;
+                Ok(Some(format!("{:?}", value)))
+            } else {
+                Ok(Some("[]".to_string()))
+            }
+        });
+        
+        match result {
+            Ok(Some(json)) => create_result(true, Some(json), None),
+            Ok(None) => create_result(true, Some("[]".to_string()), None),
+            Err(e) => create_result(false, None, Some(format!("Query error: {}", e))),
+        }
+    });
+    
+    result.unwrap_or_else(|_| create_result(false, None, Some("Panic in query_proxies".to_string())))
+}
+
+/// Set identity information
+#[no_mangle]
+pub extern "C" fn set_identity(
+    rpc_url: *const c_char,
+    mnemonic: *const c_char,
+    display_name: *const c_char,
+    legal_name: *const c_char,
+    web: *const c_char,
+    email: *const c_char,
+    twitter: *const c_char,
+) -> TransferResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let mnem_str = unsafe { CStr::from_ptr(mnemonic).to_string_lossy().into_owned() };
+        let display = unsafe { CStr::from_ptr(display_name).to_string_lossy().into_owned() };
+        let legal = unsafe { CStr::from_ptr(legal_name).to_string_lossy().into_owned() };
+        let web_str = unsafe { CStr::from_ptr(web).to_string_lossy().into_owned() };
+        let email_str = unsafe { CStr::from_ptr(email).to_string_lossy().into_owned() };
+        let twitter_str = unsafe { CStr::from_ptr(twitter).to_string_lossy().into_owned() };
+        
+        let mnemonic = match Mnemonic::parse_normalized(&mnem_str) {
+            Ok(m) => m,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Mnemonic error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let signer = match Keypair::from_phrase(&mnemonic, None) {
+            Ok(kp) => kp,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Keypair error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Connection error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        // Helper to create Data::Raw value
+        let create_data_field = |s: &str| {
+            if s.is_empty() {
+                Value::variant("None", Composite::unnamed(vec![]))
+            } else {
+                Value::variant(
+                    "Raw",
+                    Composite::unnamed(vec![Value::from_bytes(s.as_bytes().to_vec())])
+                )
+            }
+        };
+        
+        // Create identity info struct
+        let identity_info = Value::unnamed_composite(vec![
+            Value::unnamed_composite(vec![]),  // additional (empty)
+            create_data_field(&display),
+            create_data_field(&legal),
+            create_data_field(&web_str),
+            Value::variant("None", Composite::unnamed(vec![])),  // riot (deprecated)
+            create_data_field(&email_str),
+            Value::variant("None", Composite::unnamed(vec![])),  // pgp_fingerprint
+            Value::variant("None", Composite::unnamed(vec![])),  // image
+            create_data_field(&twitter_str),
+        ]);
+        
+        let tx = tx::dynamic(
+            "Identity",
+            "set_identity",
+            vec![identity_info],
+        );
+        
+        let result = tokio_rt().block_on(async {
+            let progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &signer)
+                .await;
+            
+            match progress {
+                Ok(progress) => {
+                    let events = progress.wait_for_finalized_success().await;
+                    match events {
+                        Ok(events) => {
+                            let tx_hash = events.extrinsic_hash();
+                            Ok(format!("0x{}", hex::encode(tx_hash.0)))
+                        },
+                        Err(e) => Err(format!("Finalization error: {}", e)),
+                    }
+                },
+                Err(e) => Err(format!("Submit error: {}", e)),
+            }
+        });
+        
+        match result {
+            Ok(tx_hash) => TransferResult {
+                success: true,
+                tx_hash: CString::new(tx_hash).unwrap().into_raw(),
+                error: std::ptr::null_mut(),
+            },
+            Err(e) => TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(e).unwrap().into_raw(),
+            },
+        }
+    });
+    
+    result.unwrap_or_else(|_| TransferResult {
+        success: false,
+        tx_hash: std::ptr::null_mut(),
+        error: CString::new("Panic in set_identity".to_string()).unwrap().into_raw(),
+    })
+}
+
+/// Clear identity
+#[no_mangle]
+pub extern "C" fn clear_identity(
+    rpc_url: *const c_char,
+    mnemonic: *const c_char,
+) -> TransferResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let mnem_str = unsafe { CStr::from_ptr(mnemonic).to_string_lossy().into_owned() };
+        
+        let mnemonic = match Mnemonic::parse_normalized(&mnem_str) {
+            Ok(m) => m,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Mnemonic error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let signer = match Keypair::from_phrase(&mnemonic, None) {
+            Ok(kp) => kp,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Keypair error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(format!("Connection error: {}", e)).unwrap().into_raw(),
+            },
+        };
+        
+        let tx = tx::dynamic("Identity", "clear_identity", Vec::<Value>::new());
+        
+        let result = tokio_rt().block_on(async {
+            let progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &signer)
+                .await;
+            
+            match progress {
+                Ok(progress) => {
+                    let events = progress.wait_for_finalized_success().await;
+                    match events {
+                        Ok(events) => {
+                            let tx_hash = events.extrinsic_hash();
+                            Ok(format!("0x{}", hex::encode(tx_hash.0)))
+                        },
+                        Err(e) => Err(format!("Finalization error: {}", e)),
+                    }
+                },
+                Err(e) => Err(format!("Submit error: {}", e)),
+            }
+        });
+        
+        match result {
+            Ok(tx_hash) => TransferResult {
+                success: true,
+                tx_hash: CString::new(tx_hash).unwrap().into_raw(),
+                error: std::ptr::null_mut(),
+            },
+            Err(e) => TransferResult {
+                success: false,
+                tx_hash: std::ptr::null_mut(),
+                error: CString::new(e).unwrap().into_raw(),
+            },
+        }
+    });
+    
+    result.unwrap_or_else(|_| TransferResult {
+        success: false,
+        tx_hash: std::ptr::null_mut(),
+        error: CString::new("Panic in clear_identity".to_string()).unwrap().into_raw(),
+    })
+}
+
+/// Query identity information
+#[no_mangle]
+pub extern "C" fn query_identity(
+    rpc_url: *const c_char,
+    account: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        let account_str = unsafe { CStr::from_ptr(account).to_string_lossy().into_owned() };
+        
+        let account_id = match subxt::utils::AccountId32::from_str(&account_str) {
+            Ok(id) => id,
+            Err(e) => return create_result(false, None, Some(format!("Address error: {}", e))),
+        };
+        
+        let client = match tokio_rt().block_on(async {
+            OnlineClient::<PolkadotConfig>::from_url(&url).await
+        }) {
+            Ok(client) => client,
+            Err(e) => return create_result(false, None, Some(format!("Connection error: {}", e))),
+        };
+        
+        let result: Result<Option<String>, subxt::Error> = tokio_rt().block_on(async {
+            let storage_address = subxt::dynamic::storage(
+                "Identity",
+                "IdentityOf",
+                vec![Value::from_bytes(account_id.0.to_vec())],
+            );
+            
+            let identity_data = client.storage().at_latest().await?.fetch(&storage_address).await?;
+            
+            if let Some(data) = identity_data {
+                let value = data.to_value()?;
+                Ok(Some(format!("{:?}", value)))
+            } else {
+                Ok(None)
+            }
+        });
+        
+        match result {
+            Ok(Some(json)) => create_result(true, Some(json), None),
+            Ok(None) => create_result(true, Some("null".to_string()), None),
+            Err(e) => create_result(false, None, Some(format!("Query error: {}", e))),
+        }
+    });
+    
+    result.unwrap_or_else(|_| create_result(false, None, Some("Panic in query_identity".to_string())))
+}
+
 // === Tests ===
 
 /// Fetch and parse runtime metadata from a chain

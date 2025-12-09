@@ -20,7 +20,12 @@ M.metadata = function() return require("sublua.metadata") end
 M.rpc = function() return require("sublua.rpc") end
 M.chain_config = function() return require("sublua.chain_config") end
 
+-- Advanced cryptographic features
+M.multisig = function() return require("sublua.multisig") end
+M.proxy = function() return require("sublua.proxy") end
+M.identity = function() return require("sublua.identity") end
+
 -- Version info
-M.version = "0.1.6"
+M.version = "0.2.0"
 
 return M

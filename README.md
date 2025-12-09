@@ -15,9 +15,10 @@ SubLua is a high-performance Lua SDK for interacting with Substrate-based blockc
 - **Type-Safe Cryptography**: Sr25519 keypair management, signing, and address generation
 - **Transaction Support**: Submit transactions to any Substrate-based blockchain
 - **Dynamic Metadata** ✨: Automatic pallet discovery, call index lookup, and runtime compatibility checking via subxt SCALE codec
+- **Advanced Crypto** 🔐 (v0.2.0+): Multi-signature accounts, proxy accounts, and on-chain identity management
 - **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and any custom Substrate chain
 - **High Performance**: Optimized FFI bindings to Rust (subxt + sp-core)
-- **Production Ready**: Comprehensive error handling and testing
+- **Production Ready**: Comprehensive error handling, security best practices, and testing
 
 ## 📦 Installation
 
@@ -319,6 +320,86 @@ local subscription = rpc:subscribe_events(function(event)
     end
 end)
 ```
+
+## 🔐 Advanced Cryptographic Features (New in v0.2.0!)
+
+SubLua now supports advanced cryptographic patterns used in production Substrate applications.
+
+### Multi-Signature Accounts
+
+Create multi-sig accounts requiring multiple signers for transactions:
+
+```lua
+local multisig_mod = sublua.multisig()
+
+-- Create 2-of-3 multisig
+local info, err = multisig_mod.create_address(
+    {
+        "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+        "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y"
+    },
+    2  -- Threshold: 2 signatures required
+)
+
+print("Multisig Address:", info.multisig_address)
+```
+
+### Proxy Accounts
+
+Delegate account permissions with fine-grained control:
+
+```lua
+local proxy_mod = sublua.proxy()
+
+-- Add a proxy with limited permissions
+local tx_hash, err = proxy_mod.add(
+    "wss://westend-rpc.polkadot.io",
+    main_account_mnemonic,
+    delegate_address,
+    proxy_mod.TYPES.NON_TRANSFER,  -- Can't transfer funds
+    0  -- No delay
+)
+
+-- Execute transfer through proxy
+proxy_mod.transfer(
+    "wss://westend-rpc.polkadot.io",
+    proxy_mnemonic,
+    main_account_address,
+    recipient_address,
+    1000000000000  -- 1 WND
+)
+```
+
+### On-Chain Identity
+
+Set verifiable identity information:
+
+```lua
+local identity_mod = sublua.identity()
+
+-- Set identity
+local tx_hash, err = identity_mod.set(
+    "wss://westend-rpc.polkadot.io",
+    mnemonic,
+    {
+        display_name = "Alice",
+        web = "https://alice.example.com",
+        email = "alice@example.com",
+        twitter = "@alice"
+    }
+)
+
+-- Query identity
+local identity_data = identity_mod.query("wss://westend-rpc.polkadot.io", address)
+```
+
+**Use Cases:**
+- **Multi-sig**: Treasury management, DAO governance, secure cold storage
+- **Proxy**: Hot/cold wallet separation, bot automation, delegated voting
+- **Identity**: Validator branding, proposal authorship, social verification
+
+See [examples/](examples/) for complete working examples.
 
 ## 🔍 Dynamic Metadata (New in v0.1.6!)
 

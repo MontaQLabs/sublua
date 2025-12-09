@@ -67,6 +67,21 @@ ffi.cdef[[
     ExtrinsicResult get_call_index(const char* rpc_url, const char* pallet_name, const char* call_name);
     ExtrinsicResult get_pallet_calls(const char* rpc_url, const char* pallet_name);
     ExtrinsicResult check_runtime_compatibility(const char* rpc_url, uint32_t expected_spec_version);
+    
+    // Advanced Cryptographic Features
+    // Multi-signature
+    ExtrinsicResult create_multisig_address(const char* signatories_json, uint16_t threshold);
+    
+    // Proxy operations
+    TransferResult add_proxy(const char* rpc_url, const char* mnemonic, const char* delegate, const char* proxy_type, uint32_t delay);
+    TransferResult remove_proxy(const char* rpc_url, const char* mnemonic, const char* delegate, const char* proxy_type, uint32_t delay);
+    TransferResult proxy_call(const char* rpc_url, const char* proxy_mnemonic, const char* real_account, const char* pallet_name, const char* call_name, const char* call_args_json);
+    ExtrinsicResult query_proxies(const char* rpc_url, const char* account);
+    
+    // Identity operations
+    TransferResult set_identity(const char* rpc_url, const char* mnemonic, const char* display_name, const char* legal_name, const char* web, const char* email, const char* twitter);
+    TransferResult clear_identity(const char* rpc_url, const char* mnemonic);
+    ExtrinsicResult query_identity(const char* rpc_url, const char* account);
 ]]
 
 -- Detect platform and architecture
