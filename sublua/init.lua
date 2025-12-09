@@ -25,7 +25,11 @@ M.multisig = function() return require("sublua.multisig") end
 M.proxy = function() return require("sublua.proxy") end
 M.identity = function() return require("sublua.identity") end
 
+-- WebSocket connection management
+M.websocket = function() return require("sublua.websocket") end
+M.ws = function() return require("sublua.websocket") end  -- Alias
+
 -- Version info
-M.version = "0.2.0"
+M.version = "0.3.0"
 
 return M

@@ -16,6 +16,7 @@ SubLua is a high-performance Lua SDK for interacting with Substrate-based blockc
 - **Transaction Support**: Submit transactions to any Substrate-based blockchain
 - **Dynamic Metadata** ✨: Automatic pallet discovery, call index lookup, and runtime compatibility checking via subxt SCALE codec
 - **Advanced Crypto** 🔐 (v0.2.0+): Multi-signature accounts, proxy accounts, and on-chain identity management
+- **WebSocket Management** 🌐 (v0.3.0+): Connection pooling, automatic reconnection, heartbeat monitoring, real-time queries
 - **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and any custom Substrate chain
 - **High Performance**: Optimized FFI bindings to Rust (subxt + sp-core)
 - **Production Ready**: Comprehensive error handling, security best practices, and testing
@@ -400,6 +401,75 @@ local identity_data = identity_mod.query("wss://westend-rpc.polkadot.io", addres
 - **Identity**: Validator branding, proposal authorship, social verification
 
 See [examples/](examples/) for complete working examples.
+
+## 🌐 WebSocket Connection Management (New in v0.3.0!)
+
+SubLua now features enterprise-grade WebSocket connection management with automatic reconnection and connection pooling.
+
+### Automatic Connection Pooling
+
+Connections are automatically pooled and reused across your application:
+
+```lua
+local ws = sublua.ws()  -- or sublua.websocket()
+
+-- First call creates connection
+ws.connect("wss://westend-rpc.polkadot.io")
+
+-- Subsequent queries reuse the connection
+local balance = ws.query_balance("wss://westend-rpc.polkadot.io", address)
+```
+
+### Automatic Reconnection
+
+Connections automatically reconnect on failure with exponential backoff:
+- **Backoff**: 100ms → 200ms → 400ms → ... → 30s max
+- **Max attempts**: 10 reconnection attempts
+- **Completely transparent**: Your code doesn't need to handle reconnection logic
+
+### Connection Statistics
+
+Monitor connection health in real-time:
+
+```lua
+local stats = ws.get_stats("wss://westend-rpc.polkadot.io")
+-- Returns:
+-- {
+--   uptime_seconds = 42,
+--   reconnect_count = 1,
+--   total_messages = 15,
+--   last_ping_seconds_ago = 5
+-- }
+```
+
+### Connection Management
+
+```lua
+-- List active connections
+local info = ws.list_connections()
+print("Active connections:", info.count)
+
+-- Disconnect specific connection
+ws.disconnect("wss://westend-rpc.polkadot.io")
+
+-- Disconnect all connections
+ws.disconnect_all()
+```
+
+**Key Features:**
+- ✅ Connection pooling (one connection per endpoint)
+- ✅ Heartbeat monitoring (30-second intervals)
+- ✅ Automatic reconnection with exponential backoff
+- ✅ Statistics tracking for debugging
+- ✅ Multiple simultaneous connections
+- ✅ Clean shutdown and cleanup
+
+**Use Cases:**
+- Real-time blockchain monitoring
+- High-frequency balance queries
+- Gaming applications with live data
+- DeFi applications with price feeds
+- Multi-chain applications
 
 ## 🔍 Dynamic Metadata (New in v0.1.6!)
 

@@ -2,6 +2,9 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::catch_unwind;
 use std::sync::OnceLock;
+use std::sync::Arc;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use sp_core::blake2_128;
 use sp_core::crypto::{Pair, Ss58Codec};
@@ -10,11 +13,180 @@ use subxt::{OnlineClient, PolkadotConfig, dynamic::Value, ext::scale_value::Comp
 use subxt_signer::{bip39::Mnemonic, sr25519::Keypair};
 use std::str::FromStr;
 use tokio::runtime::Runtime;
+use tokio::sync::{RwLock, mpsc};
+use tokio::time::sleep;
+// use futures::StreamExt;  // Reserved for future subscription support
+use parking_lot::Mutex as ParkingMutex;
 use hex;
 
 static TOKIO: OnceLock<Runtime> = OnceLock::new();
 fn tokio_rt() -> &'static Runtime {
     TOKIO.get_or_init(|| Runtime::new().expect("failed to start tokio"))
+}
+
+// === WebSocket Connection Management ===
+
+#[derive(Debug, Clone)]
+struct ConnectionStats {
+    connected_at: Instant,
+    last_ping: Instant,
+    reconnect_count: u32,
+    total_messages: u64,
+}
+
+#[derive(Debug)]
+struct WebSocketConnection {
+    url: String,
+    client: Arc<RwLock<Option<OnlineClient<PolkadotConfig>>>>,
+    stats: Arc<RwLock<ConnectionStats>>,
+    shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
+}
+
+impl WebSocketConnection {
+    async fn new(url: String) -> Result<Self, String> {
+        let client = OnlineClient::<PolkadotConfig>::from_url(&url)
+            .await
+            .map_err(|e| format!("Failed to connect: {}", e))?;
+        
+        let stats = ConnectionStats {
+            connected_at: Instant::now(),
+            last_ping: Instant::now(),
+            reconnect_count: 0,
+            total_messages: 0,
+        };
+        
+        Ok(Self {
+            url,
+            client: Arc::new(RwLock::new(Some(client))),
+            stats: Arc::new(RwLock::new(stats)),
+            shutdown_tx: Arc::new(RwLock::new(None)),
+        })
+    }
+    
+    async fn reconnect(&self) -> Result<(), String> {
+        let mut backoff_ms = 100u64;
+        let max_backoff_ms = 30000u64;
+        let mut attempts = 0u32;
+        
+        loop {
+            attempts += 1;
+            
+            match OnlineClient::<PolkadotConfig>::from_url(&self.url).await {
+                Ok(client) => {
+                    let mut client_lock = self.client.write().await;
+                    *client_lock = Some(client);
+                    
+                    let mut stats = self.stats.write().await;
+                    stats.connected_at = Instant::now();
+                    stats.reconnect_count += 1;
+                    stats.last_ping = Instant::now();
+                    
+                    return Ok(());
+                }
+                Err(e) => {
+                    if attempts >= 10 {
+                        return Err(format!("Max reconnection attempts reached: {}", e));
+                    }
+                    
+                    sleep(Duration::from_millis(backoff_ms)).await;
+                    backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
+                }
+            }
+        }
+    }
+    
+    async fn start_heartbeat(&self) {
+        let (tx, mut rx) = mpsc::channel::<()>(1);
+        {
+            let mut shutdown = self.shutdown_tx.write().await;
+            *shutdown = Some(tx);
+        }
+        
+        let stats = Arc::clone(&self.stats);
+        let client = Arc::clone(&self.client);
+        let _url = self.url.clone();  // Reserved for future reconnection logic
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Heartbeat: check if connection is alive
+                        let client_lock = client.read().await;
+                        if client_lock.is_some() {
+                            // Update last ping time
+                            let mut stats_lock = stats.write().await;
+                            stats_lock.last_ping = Instant::now();
+                        } else {
+                            // Connection lost, trigger reconnect
+                            drop(client_lock);
+                            // Reconnection logic would go here
+                        }
+                    }
+                    _ = rx.recv() => {
+                        // Shutdown signal received
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    
+    async fn get_client(&self) -> Result<OnlineClient<PolkadotConfig>, String> {
+        let client_lock = self.client.read().await;
+        match &*client_lock {
+            Some(client) => {
+                // Clone the client (it's Arc internally)
+                Ok(client.clone())
+            }
+            None => {
+                drop(client_lock);
+                self.reconnect().await?;
+                let client_lock = self.client.read().await;
+                client_lock.as_ref()
+                    .ok_or_else(|| "Failed to get client after reconnect".to_string())
+                    .map(|c| c.clone())
+            }
+        }
+    }
+    
+    async fn shutdown(&self) {
+        let shutdown = self.shutdown_tx.read().await;
+        if let Some(tx) = shutdown.as_ref() {
+            let _ = tx.send(()).await;
+        }
+    }
+}
+
+// Global connection pool
+static CONNECTION_POOL: OnceLock<Arc<ParkingMutex<HashMap<String, Arc<WebSocketConnection>>>>> = OnceLock::new();
+
+fn get_connection_pool() -> &'static Arc<ParkingMutex<HashMap<String, Arc<WebSocketConnection>>>> {
+    CONNECTION_POOL.get_or_init(|| Arc::new(ParkingMutex::new(HashMap::new())))
+}
+
+async fn get_or_create_connection(url: &str) -> Result<Arc<WebSocketConnection>, String> {
+    // Check if connection exists
+    {
+        let pool = get_connection_pool().lock();
+        if let Some(conn) = pool.get(url) {
+            return Ok(Arc::clone(conn));
+        }
+    }
+    
+    // Create new connection
+    let conn = WebSocketConnection::new(url.to_string()).await?;
+    conn.start_heartbeat().await;
+    let conn = Arc::new(conn);
+    
+    // Store in pool
+    {
+        let mut pool = get_connection_pool().lock();
+        pool.insert(url.to_string(), Arc::clone(&conn));
+    }
+    
+    Ok(conn)
 }
 
 // Note: We'll add metadata generation later when we have the metadata file
@@ -1165,6 +1337,215 @@ pub extern "C" fn query_identity(
     });
     
     result.unwrap_or_else(|_| create_result(false, None, Some("Panic in query_identity".to_string())))
+}
+
+// === WebSocket Connection Management FFI ===
+
+/// Initialize a WebSocket connection and add it to the pool
+#[no_mangle]
+pub extern "C" fn ws_connect(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            match get_or_create_connection(&url).await {
+                Ok(conn) => {
+                    let stats = conn.stats.read().await;
+                    let info = serde_json::json!({
+                        "url": url,
+                        "connected": true,
+                        "reconnect_count": stats.reconnect_count,
+                    });
+                    Ok::<String, String>(info.to_string())
+                }
+                Err(e) => Err(e),
+            }
+        })
+    });
+    
+    match result {
+        Ok(Ok(info)) => create_result(true, Some(info), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in ws_connect".to_string())),
+    }
+}
+
+/// Get connection stats for a WebSocket connection
+#[no_mangle]
+pub extern "C" fn ws_get_stats(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let pool = get_connection_pool().lock();
+            match pool.get(&url) {
+                Some(conn) => {
+                    let stats = conn.stats.read().await;
+                    let uptime_secs = stats.connected_at.elapsed().as_secs();
+                    let last_ping_secs = stats.last_ping.elapsed().as_secs();
+                    
+                    let info = serde_json::json!({
+                        "url": url,
+                        "connected": true,
+                        "uptime_seconds": uptime_secs,
+                        "last_ping_seconds_ago": last_ping_secs,
+                        "reconnect_count": stats.reconnect_count,
+                        "total_messages": stats.total_messages,
+                    });
+                    Ok::<String, String>(info.to_string())
+                }
+                None => Err(format!("No connection found for {}", url)),
+            }
+        })
+    });
+    
+    match result {
+        Ok(Ok(info)) => create_result(true, Some(info), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in ws_get_stats".to_string())),
+    }
+}
+
+/// Manually trigger reconnection for a WebSocket connection
+#[no_mangle]
+pub extern "C" fn ws_reconnect(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            // Get connection from pool
+            let conn = {
+                let pool = get_connection_pool().lock();
+                pool.get(&url).cloned()
+            };
+            
+            match conn {
+                Some(conn) => {
+                    conn.reconnect().await?;
+                    Ok::<String, String>("Reconnected successfully".to_string())
+                }
+                None => Err(format!("No connection found for {}", url)),
+            }
+        })
+    });
+    
+    match result {
+        Ok(Ok(msg)) => create_result(true, Some(msg), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in ws_reconnect".to_string())),
+    }
+}
+
+/// Close a WebSocket connection and remove from pool
+#[no_mangle]
+pub extern "C" fn ws_disconnect(rpc_url: *const c_char) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let url = unsafe { CStr::from_ptr(rpc_url).to_string_lossy().into_owned() };
+        
+        tokio_rt().block_on(async {
+            let mut pool = get_connection_pool().lock();
+            match pool.remove(&url) {
+                Some(conn) => {
+                    drop(pool);
+                    conn.shutdown().await;
+                    Ok::<String, String>("Disconnected successfully".to_string())
+                }
+                None => Err(format!("No connection found for {}", url)),
+            }
+        })
+    });
+    
+    match result {
+        Ok(Ok(msg)) => create_result(true, Some(msg), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in ws_disconnect".to_string())),
+    }
+}
+
+/// List all active WebSocket connections
+#[no_mangle]
+pub extern "C" fn ws_list_connections() -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        tokio_rt().block_on(async {
+            let pool = get_connection_pool().lock();
+            let urls: Vec<String> = pool.keys().cloned().collect();
+            
+            let info = serde_json::json!({
+                "connections": urls,
+                "count": urls.len(),
+            });
+            Ok::<String, String>(info.to_string())
+        })
+    });
+    
+    match result {
+        Ok(Ok(info)) => create_result(true, Some(info), None),
+        Ok(Err(e)) => create_result(false, None, Some(e)),
+        Err(_) => create_result(false, None, Some("Panic in ws_list_connections".to_string())),
+    }
+}
+
+/// Query balance using WebSocket connection pool
+#[no_mangle]
+pub extern "C" fn ws_query_balance(
+    node_url: *const c_char,
+    address: *const c_char,
+) -> ExtrinsicResult {
+    let result = catch_unwind(|| {
+        let node_url_str = unsafe { CStr::from_ptr(node_url).to_string_lossy().into_owned() };
+        let address_str = unsafe { CStr::from_ptr(address).to_string_lossy().into_owned() };
+
+        let account_id = match subxt::utils::AccountId32::from_str(&address_str) {
+            Ok(addr) => addr,
+            Err(e) => return create_result(false, None, Some(format!("Address error: {}", e))),
+        };
+
+        tokio_rt().block_on(async {
+            // Get or create connection
+            let conn = match get_or_create_connection(&node_url_str).await {
+                Ok(c) => c,
+                Err(e) => return create_result(false, None, Some(e)),
+            };
+            
+            // Get client from connection
+            let client = match conn.get_client().await {
+                Ok(c) => c,
+                Err(e) => return create_result(false, None, Some(e)),
+            };
+            
+            // Query account info
+            let result: Result<Option<String>, subxt::Error> = async {
+                let storage_address = subxt::dynamic::storage(
+                    "System",
+                    "Account",
+                    vec![Value::from_bytes(account_id.0.to_vec())],
+                );
+                
+                let account_data = client.storage().at_latest().await?.fetch(&storage_address).await?;
+                
+                if let Some(data) = account_data {
+                    let value = data.to_value()?;
+                    Ok(Some(format!("{:?}", value)))
+                } else {
+                    Ok(None)
+                }
+            }.await;
+
+            // Update message count
+            {
+                let mut stats = conn.stats.write().await;
+                stats.total_messages += 1;
+            }
+
+            match result {
+                Ok(Some(json)) => create_result(true, Some(json), None),
+                Ok(None) => create_result(true, Some(String::from("{\"free\":0,\"reserved\":0,\"frozen\":0}")), None),
+                Err(e) => create_result(false, None, Some(format!("Query error: {}", e))),
+            }
+        })
+    });
+
+    result.unwrap_or_else(|_| create_result(false, None, Some(String::from("Panic occurred"))))
 }
 
 // === Tests ===

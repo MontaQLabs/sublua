@@ -82,6 +82,14 @@ ffi.cdef[[
     TransferResult set_identity(const char* rpc_url, const char* mnemonic, const char* display_name, const char* legal_name, const char* web, const char* email, const char* twitter);
     TransferResult clear_identity(const char* rpc_url, const char* mnemonic);
     ExtrinsicResult query_identity(const char* rpc_url, const char* account);
+    
+    // WebSocket connection management
+    ExtrinsicResult ws_connect(const char* rpc_url);
+    ExtrinsicResult ws_get_stats(const char* rpc_url);
+    ExtrinsicResult ws_reconnect(const char* rpc_url);
+    ExtrinsicResult ws_disconnect(const char* rpc_url);
+    ExtrinsicResult ws_list_connections();
+    ExtrinsicResult ws_query_balance(const char* node_url, const char* address);
 ]]
 
 -- Detect platform and architecture
