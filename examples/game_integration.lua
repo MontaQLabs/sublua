@@ -1,7 +1,7 @@
 -- examples/game_integration.lua
 -- Game integration example for SubLua SDK
 
-local sdk = require("sdk.init")
+local sdk = require("sublua")
 
 print("🎮 SubLua Game Integration Example")
 print("==================================")

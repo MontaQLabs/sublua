@@ -1,7 +1,7 @@
 -- examples/basic_usage.lua
 -- Basic usage example for SubLua SDK
 
-local sdk = require("sdk.init")
+local sdk = require("sublua")
 
 print("🚀 SubLua Basic Usage Example")
 print("=============================")

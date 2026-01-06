@@ -6,7 +6,7 @@
 print("🚀 Sublua Custom FFI Path Example")
 print("=" .. string.rep("=", 60))
 
-local sublua = require("sdk.init")
+local sublua = require("sublua")
 
 -- Method 1: Auto-detect (recommended)
 print("\n1️⃣  Auto-detect FFI library:")
