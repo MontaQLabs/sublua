@@ -1,0 +1,83 @@
+name: Game Release
+
+on:
+  push:
+    tags:
+      - 'game-v*'
+  workflow_dispatch:
+
+jobs:
+  build-game:
+    name: Build Game Executables
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create .love file
+        run: |
+          cd game
+          zip -r ../TreasureHunter.love . -x "*.sh" -x "*.md"
+          cd ..
+          ls -lh TreasureHunter.love
+      
+      - name: Download Love2D binaries
+        run: |
+          # Windows
+          wget https://github.com/love2d/love/releases/download/11.5/love-11.5-win64.zip
+          unzip love-11.5-win64.zip
+          
+          # Linux
+          wget https://github.com/love2d/love/releases/download/11.5/love-11.5-x86_64.AppImage
+          chmod +x love-11.5-x86_64.AppImage
+      
+      - name: Package Windows
+        run: |
+          cat love-11.5-win64/love.exe TreasureHunter.love > TreasureHunter.exe
+          mkdir TreasureHunter-Windows
+          cp TreasureHunter.exe TreasureHunter-Windows/
+          cp love-11.5-win64/*.dll TreasureHunter-Windows/
+          cp love-11.5-win64/license.txt TreasureHunter-Windows/
+          zip -r TreasureHunter-Windows.zip TreasureHunter-Windows/
+      
+      - name: Package Linux
+        run: |
+          # For Linux, just distribute the .love file
+          # Most Linux users have Love2D installed
+          cp TreasureHunter.love TreasureHunter-Linux.love
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            TreasureHunter.love
+            TreasureHunter-Windows.zip
+            TreasureHunter-Linux.love
+          body: |
+            # 🎮 Treasure Hunter - Blockchain Game
+            
+            A complete blockchain-integrated game demonstrating SubLua SDK capabilities.
+            
+            ## Download & Play
+            
+            - **Windows**: Download `TreasureHunter-Windows.zip`, extract, run `TreasureHunter.exe`
+            - **Linux/macOS**: Download `TreasureHunter.love`, then: `love TreasureHunter.love`
+            - **Universal**: Download `.love` file (requires Love2D installed)
+            
+            ## Features
+            
+            - 🎮 Player account management
+            - 💰 Token economics (play-to-earn)
+            - 🏆 Leaderboard system
+            - 🔐 Multi-sig treasury
+            - 🌐 Works with or without blockchain
+            
+            ## Install Love2D (if needed)
+            
+            - Windows: https://love2d.org
+            - macOS: `brew install love`
+            - Linux: `sudo apt install love`
+            
+            Then run: `love TreasureHunter.love`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

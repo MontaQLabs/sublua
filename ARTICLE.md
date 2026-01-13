@@ -569,6 +569,58 @@ SubLua v0.3.0 is production-ready for most operations but has known limitations:
 
 5. **Windows Support**: Precompiled binaries for Windows aren't available yet. You can compile from source with `cargo build --release`.
 
+## Lessons Learned
+
+Building SubLua taught us valuable lessons about cross-language SDK development:
+
+### 1. FFI Design Matters More Than You Think
+
+**Decision**: Return simple C structs with success flags rather than complex nested types.
+
+**Why**: LuaJIT's FFI excels at simple types. We initially tried returning complex Rust types directly, but this led to memory management nightmares. The current `ExtrinsicResult` struct with `success`, `data`, and `error` fields is dead simple and eliminates an entire class of bugs.
+
+**Lesson**: Simplicity at the FFI boundary pays dividends in reliability and debugging.
+
+### 2. Dynamic Metadata is Non-Negotiable
+
+**Decision**: Integrate `subxt`'s runtime metadata parsing rather than hardcoding pallet indices.
+
+**Why**: Early versions hardcoded call indices (`[4, 3]` for Balances::transfer). This broke on every runtime upgrade. By leveraging `subxt`'s metadata engine, SubLua automatically adapts to any Substrate chain.
+
+**Lesson**: Runtime upgrades are frequent in Substrate. Any SDK that hardcodes runtime details is doomed to maintenance hell.
+
+### 3. WebSocket Pooling is Essential for Real Applications
+
+**Decision**: Implement connection pooling with automatic reconnection rather than per-request connections.
+
+**Why**: HTTP requests to Substrate chains take ~500ms due to connection overhead. Games and real-time apps can't tolerate this latency. WebSocket pooling reduces subsequent queries to ~100ms—an 80% improvement.
+
+**Lesson**: The difference between a demo and production is often infrastructure. Connection management isn't glamorous but it's essential.
+
+### 4. Graceful Degradation Beats Hard Failures
+
+**Decision**: SubLua operates in "demo mode" when FFI library isn't available.
+
+**Why**: Users installing via LuaRocks might not have Rust toolchain. Rather than failing completely, the SDK loads Lua modules and simulates blockchain operations. This lets developers prototype without full setup.
+
+**Lesson**: Make the first experience as frictionless as possible. Barriers to entry kill adoption.
+
+### 5. Test Against Live Networks
+
+**Decision**: All tests run against live Westend testnet, not mocks.
+
+**Why**: Mocking RPC responses doesn't catch real-world issues: network latency, rate limiting, runtime changes, malformed responses. Live testing caught bugs that mocks would have hidden.
+
+**Lesson**: Mocks are useful for unit tests, but integration tests against real infrastructure are irreplaceable.
+
+### 6. Security Documentation is a Feature
+
+**Decision**: Ship `SECURITY.md` with explicit guidance on key storage, proxy usage, and multisig thresholds.
+
+**Why**: Blockchain security isn't intuitive. Users who are new to Web3 don't know that mnemonics should never be logged, that proxy accounts need delay periods in production, or that multisig threshold selection impacts both security and availability.
+
+**Lesson**: Security documentation prevents vulnerabilities before they happen. It's as important as the code.
+
 ## Performance Characteristics
 
 Based on real test runs against live testnets:

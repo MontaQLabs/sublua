@@ -1,24 +1,21 @@
+# Internal/draft files (not for public repo)
+apply.md
+delivery.md
+MILESTONE2_SUMMARY.md
+
 # Build artifacts
-polkadot-ffi-subxt/target/
-*.rock
+TreasureHunter.app/
+TreasureHunter-macOS.zip
 
-# Compiled libraries (but allow precompiled binaries)
-*.so
-*.dylib
-*.dll
-!precompiled/**/*.so
-!precompiled/**/*.dylib
-!precompiled/**/*.dll
-
-# Rust
+# Rust build
+target/
 Cargo.lock
-**/target/
 
-# Lua
-*.luac
-*.lua~
+# Lua rocks
+*.rock
+!sublua-*.rockspec
 
-# IDE
+# Editor
 .vscode/
 .idea/
 *.swp
@@ -28,18 +25,3 @@ Cargo.lock
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# Temporary files
-*.tmp
-*.temp
-
-# Environment
-.env
-.env.local
-
-# API keys (security)
-*api_key*
-*secret*

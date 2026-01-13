@@ -160,24 +160,137 @@ local M = {}
 -- Global FFI library instance
 local lib = nil
 
--- Initialize FFI with specified path
-function M.load_ffi(path)
-    if not path then
-        path = get_default_ffi_path()
+-- Smart path finder - searches ALL possible locations
+local function find_ffi_library()
+    local os_name, arch = detect_platform()
+    local platform_dir = os_name .. "-" .. arch
+    
+    -- Determine file extension and name
+    local ext = ".so"
+    local filename = "libpolkadot_ffi"
+    if os_name == 'windows' then
+        ext = ".dll"
+        filename = "polkadot_ffi"
+    elseif os_name == 'macos' then
+        ext = ".dylib"
     end
     
-    lib = load_ffi_library(path)
-    print("✅ FFI library loaded from:", path)
-    return lib
+    local lib_file = filename .. ext
+    local home = os.getenv("HOME") or ""
+    
+    -- Build search paths (avoiding nil which breaks ipairs)
+    local search_paths = {}
+    
+    -- 1. Environment variable (user override)
+    local env_path = os.getenv("SUBLUA_FFI_PATH")
+    if env_path then table.insert(search_paths, env_path) end
+    
+    -- 2. Current directory (development)
+    table.insert(search_paths, "./precompiled/" .. platform_dir .. "/" .. lib_file)
+    table.insert(search_paths, "precompiled/" .. platform_dir .. "/" .. lib_file)
+    table.insert(search_paths, "./" .. lib_file)
+    
+    -- 3. SubLua-specific install location (installer puts it here)
+    table.insert(search_paths, home .. "/.sublua/lib/" .. lib_file)
+    
+    -- 4. LuaRocks installed location
+    table.insert(search_paths, home .. "/.luarocks/lib/lua/5.1/" .. lib_file)
+    table.insert(search_paths, home .. "/.luarocks/lib/lua/5.4/" .. lib_file)
+    table.insert(search_paths, home .. "/.luarocks/share/lua/5.1/precompiled/" .. platform_dir .. "/" .. lib_file)
+    table.insert(search_paths, home .. "/.luarocks/share/lua/5.4/precompiled/" .. platform_dir .. "/" .. lib_file)
+    
+    -- 5. System locations
+    table.insert(search_paths, "/usr/local/lib/" .. lib_file)
+    table.insert(search_paths, "/opt/homebrew/lib/" .. lib_file)
+    
+    -- 6. Relative to script location (for bundled apps)
+    table.insert(search_paths, "../precompiled/" .. platform_dir .. "/" .. lib_file)
+    
+    -- Try each path
+    for _, path in ipairs(search_paths) do
+        local ok, result = pcall(ffi.load, path)
+        if ok then
+            return result, path
+        end
+    end
+    
+    -- Last resort: try just the library name (system LD_LIBRARY_PATH)
+    local ok, loaded = pcall(ffi.load, filename)
+    if ok then
+        return loaded, "system path (" .. filename .. ")"
+    end
+    
+    return nil, nil
+end
+
+-- Initialize FFI - SMART auto-finding
+function M.load_ffi(path)
+    -- If already loaded, return it
+    if lib then
+        return lib
+    end
+    
+    -- If specific path provided, use it
+    if path then
+        -- Path might be a directory or a file
+        local os_name, arch = detect_platform()
+        local ext = (os_name == 'macos') and ".dylib" or (os_name == 'windows') and ".dll" or ".so"
+        local filename = (os_name == 'windows') and "polkadot_ffi" or "libpolkadot_ffi"
+        
+        local full_path = path
+        if not path:match(ext .. "$") then
+            -- It's a directory, append the filename
+            local platform_dir = os_name .. "-" .. arch
+            if path:match("/$") then
+                full_path = path .. platform_dir .. "/" .. filename .. ext
+            elseif path:match("precompiled$") or path:match("precompiled/$") then
+                full_path = path .. "/" .. platform_dir .. "/" .. filename .. ext
+            else
+                full_path = path .. "/" .. filename .. ext
+            end
+        end
+        
+        local ok, loaded = pcall(ffi.load, full_path)
+        if ok then
+            lib = loaded
+            return lib
+        else
+            -- Try just the raw path
+            ok, loaded = pcall(ffi.load, path)
+            if ok then
+                lib = loaded
+                return lib
+            end
+            error("Failed to load FFI library from: " .. path .. " (or " .. full_path .. ")")
+        end
+    end
+    
+    -- Auto-find the library
+    local loaded, found_path = find_ffi_library()
+    if loaded then
+        lib = loaded
+        return lib
+    end
+    
+    -- Give helpful error
+    local os_name, arch = detect_platform()
+    error([[
+FFI library not found! 
+
+To fix this, run one of:
+  1. curl -sSL https://raw.githubusercontent.com/MontaQLabs/sublua/main/install_sublua.sh | bash
+  2. Or manually download from: https://github.com/MontaQLabs/sublua/releases
+
+Expected location: ~/.sublua/lib/libpolkadot_ffi]] .. ((os_name == 'macos') and ".dylib" or ".so"))
 end
 
 -- Expose ffi for direct access
 M.ffi = ffi
 
--- Get current FFI library (loads default if not initialized)
+-- Get current FFI library (auto-loads if needed)
 function M.get_lib()
     if not lib then
-        M.load_ffi() -- Load with default path
+        M.load_ffi()
     end
     return lib
 end
@@ -193,11 +306,10 @@ function M.get_recommended_path()
 end
 
 -- Download FFI library for current platform
-function M.download_ffi_library()
+function M.download_ffi_library(target_dir)
     local os_name, arch = detect_platform()
     local platform_dir = os_name .. "-" .. arch
     
-    -- Determine file extension and name
     local ext = ".so"
     local filename = "libpolkadot_ffi.so"
     if os_name == 'windows' then
@@ -208,44 +320,26 @@ function M.download_ffi_library()
         filename = "libpolkadot_ffi.dylib"
     end
     
+    local home = os.getenv("HOME") or "."
+    target_dir = target_dir or (home .. "/.sublua/lib")
+    
     local url = "https://github.com/MontaQLabs/sublua/releases/latest/download/" .. filename
-    local local_path = "./precompiled/" .. platform_dir .. "/" .. filename
+    local local_path = target_dir .. "/" .. filename
     
     print("📥 Downloading FFI library for " .. platform_dir .. "...")
     print("   URL:", url)
-    print("   Local path:", local_path)
+    print("   Target:", local_path)
     
-    -- Create directory if it doesn't exist
-    os.execute("mkdir -p ./precompiled/" .. platform_dir)
+    os.execute("mkdir -p '" .. target_dir .. "'")
     
-    -- Download using curl
     local cmd = "curl -L -o '" .. local_path .. "' '" .. url .. "'"
     local result = os.execute(cmd)
     
     if result == 0 then
-        print("✅ FFI library downloaded successfully!")
+        print("✅ FFI library installed to:", local_path)
         return local_path
     else
-        error("Failed to download FFI library")
-    end
-end
-
--- Auto-detect and load FFI library
-function M.auto_load()
-    local os_name, arch = detect_platform()
-    local platform_dir = os_name .. "-" .. arch
-    
-    -- Try to load from precompiled directory
-    local default_path = get_default_ffi_path()
-    local ok, lib = pcall(ffi.load, default_path)
-    
-    if ok then
-        print("✅ FFI library auto-loaded from:", default_path)
-        return lib
-    else
-        print("⚠️  FFI library not found at:", default_path)
-        print("💡 Run: sublua.download_ffi_library() to download it")
-        return nil
+        error("Failed to download FFI library. Check your internet connection.")
     end
 end
 

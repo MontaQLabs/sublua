@@ -30,6 +30,6 @@ M.websocket = function() return require("sublua.websocket") end
 M.ws = function() return require("sublua.websocket") end  -- Alias
 
 -- Version info
-M.version = "0.3.0"
+M.version = "0.3.1"
 
 return M

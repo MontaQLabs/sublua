@@ -1,43 +1,57 @@
 -- examples/game_integration.lua
 -- Game integration example for SubLua SDK
 
-local sdk = require("sublua")
+-- Add local path for development
+package.path = package.path .. ";./?.lua;./?/init.lua;./sublua/?.lua"
+
+local sublua = require("sublua")
 
 print("🎮 SubLua Game Integration Example")
 print("==================================")
+print("Version:", sublua.version)
+
+-- Load FFI
+print("\nLoading FFI library...")
+sublua.ffi()
 
 -- Game configuration
 local GAME_CONFIG = {
     rpc_url = "wss://westend-rpc.polkadot.io",
     player_mnemonic = "helmet myself order all require large unusual verify ritual final apart nut",
-    game_contract_address = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", -- Example contract
+    game_contract_address = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
     min_balance = 1000000000000, -- 1 WND minimum for game
-    transaction_fee = 100000000000 -- 0.1 WND fee
+    transaction_fee = 100000000000, -- 0.1 WND fee
+    westend_prefix = 42,
+    token_symbol = "WND",
+    token_decimals = 12
 }
 
 -- Game state
 local GameState = {
     player = nil,
-    rpc = nil,
-    chain_config = nil,
+    player_address = nil,
     balance = 0,
-    is_connected = false
+    is_connected = false,
+    ffi = nil,
+    ffi_lib = nil
 }
 
 -- Initialize game
 function GameState:init()
     print("\n1️⃣ Initializing game...")
     
-    -- Connect to blockchain
-    self.rpc = sdk.rpc.new(GAME_CONFIG.rpc_url)
-    self.chain_config = sdk.chain_config.detect_from_url(GAME_CONFIG.rpc_url)
+    -- Set up FFI
+    local polkadot_ffi = require("sublua.polkadot_ffi")
+    self.ffi = polkadot_ffi.ffi
+    self.ffi_lib = polkadot_ffi.get_lib()
     
     -- Create player signer
-    self.player = sdk.signer.from_mnemonic(GAME_CONFIG.player_mnemonic)
-    self.player_address = self.player:get_ss58_address(self.chain_config.ss58_prefix)
+    local signer_module = sublua.signer()
+    self.player = signer_module.from_mnemonic(GAME_CONFIG.player_mnemonic)
+    self.player_address = self.player:get_ss58_address(GAME_CONFIG.westend_prefix)
     
     print("✅ Game initialized")
-    print("   Chain:", self.chain_config.name)
+    print("   Chain: Westend")
     print("   Player:", self.player_address)
     
     return self:check_connection()
@@ -47,21 +61,31 @@ end
 function GameState:check_connection()
     print("\n2️⃣ Checking blockchain connection...")
     
-    local success, account = pcall(function()
-        return self.rpc:get_account_info(self.player_address)
-    end)
+    local url_cstr = self.ffi.new("char[?]", #GAME_CONFIG.rpc_url + 1)
+    self.ffi.copy(url_cstr, GAME_CONFIG.rpc_url)
     
-    if success and account then
-        self.balance = account.data.free_tokens or account.data.free or 0
-        self.is_connected = true
-        print("✅ Connected to blockchain")
-        print("   Balance:", string.format("%.5f %s", self.balance, self.chain_config.token_symbol))
-        return true
-    else
-        print("❌ Failed to connect to blockchain")
-        print("   Error:", account or "Unknown error")
-        return false
+    local addr_cstr = self.ffi.new("char[?]", #self.player_address + 1)
+    self.ffi.copy(addr_cstr, self.player_address)
+    
+    local result = self.ffi_lib.query_balance(url_cstr, addr_cstr)
+    
+    if result.success then
+        local data_str = self.ffi.string(result.data)
+        self.ffi_lib.free_string(result.data)
+        
+        local free_match = data_str:match('U128%((%d+)%)')
+        if free_match then
+            self.balance = tonumber(free_match)
+            self.is_connected = true
+            local balance_tokens = self.balance / (10 ^ GAME_CONFIG.token_decimals)
+            print("✅ Connected to blockchain")
+            print(string.format("   Balance: %.5f %s", balance_tokens, GAME_CONFIG.token_symbol))
+            return true
+        end
     end
+    
+    print("❌ Failed to connect to blockchain")
+    return false
 end
 
 -- Check if player has sufficient balance
@@ -72,71 +96,83 @@ end
 
 -- Game action: Purchase item
 function GameState:purchase_item(item_id, price)
-    print("\n🛒 Purchasing item", item_id, "for", price / (10 ^ self.chain_config.token_decimals), self.chain_config.token_symbol)
+    local price_tokens = price / (10 ^ GAME_CONFIG.token_decimals)
+    print(string.format("\n🛒 Purchasing item %s for %.4f %s", item_id, price_tokens, GAME_CONFIG.token_symbol))
     
     if not self:has_sufficient_balance() then
         print("❌ Insufficient balance for purchase")
         return false, "Insufficient balance"
     end
     
-    -- Create purchase transaction
-    local success, tx_hash = pcall(function()
-        return self.player:transfer(self.rpc, GAME_CONFIG.game_contract_address, price)
-    end)
+    -- Prepare FFI call
+    local url_cstr = self.ffi.new("char[?]", #GAME_CONFIG.rpc_url + 1)
+    self.ffi.copy(url_cstr, GAME_CONFIG.rpc_url)
     
-    if success then
+    local mnemonic_cstr = self.ffi.new("char[?]", #GAME_CONFIG.player_mnemonic + 1)
+    self.ffi.copy(mnemonic_cstr, GAME_CONFIG.player_mnemonic)
+    
+    local dest_cstr = self.ffi.new("char[?]", #GAME_CONFIG.game_contract_address + 1)
+    self.ffi.copy(dest_cstr, GAME_CONFIG.game_contract_address)
+    
+    local result = self.ffi_lib.submit_balance_transfer_subxt(url_cstr, mnemonic_cstr, dest_cstr, price)
+    
+    if result.success then
+        local tx_hash = self.ffi.string(result.tx_hash)
+        self.ffi_lib.free_string(result.tx_hash)
         print("✅ Purchase transaction submitted")
         print("   Transaction hash:", tx_hash)
-        
-        -- Update balance
         self.balance = self.balance - price - GAME_CONFIG.transaction_fee
-        
         return true, tx_hash
     else
-        print("❌ Purchase failed")
-        print("   Error:", tx_hash)
-        return false, tx_hash
+        local err_str = self.ffi.string(result.error)
+        self.ffi_lib.free_string(result.error)
+        print("❌ Purchase failed:", err_str)
+        return false, err_str
     end
 end
 
 -- Game action: Earn rewards
 function GameState:earn_rewards(amount)
-    print("\n🏆 Earning rewards:", amount / (10 ^ self.chain_config.token_decimals), self.chain_config.token_symbol)
-    
-    -- In a real game, this would be called by the game contract
-    -- For this example, we'll simulate it
+    local amount_tokens = amount / (10 ^ GAME_CONFIG.token_decimals)
+    print(string.format("\n🏆 Earning rewards: %.4f %s", amount_tokens, GAME_CONFIG.token_symbol))
     print("✅ Rewards earned (simulated)")
-    print("   Amount:", amount / (10 ^ self.chain_config.token_decimals), self.chain_config.token_symbol)
-    
     return true
 end
 
 -- Game action: Transfer to another player
 function GameState:transfer_to_player(recipient_address, amount)
+    local amount_tokens = amount / (10 ^ GAME_CONFIG.token_decimals)
     print("\n💸 Transferring to player:", recipient_address)
-    print("   Amount:", amount / (10 ^ self.chain_config.token_decimals), self.chain_config.token_symbol)
+    print(string.format("   Amount: %.4f %s", amount_tokens, GAME_CONFIG.token_symbol))
     
     if not self:has_sufficient_balance() then
         print("❌ Insufficient balance for transfer")
         return false, "Insufficient balance"
     end
     
-    local success, tx_hash = pcall(function()
-        return self.player:transfer(self.rpc, recipient_address, amount)
-    end)
+    local url_cstr = self.ffi.new("char[?]", #GAME_CONFIG.rpc_url + 1)
+    self.ffi.copy(url_cstr, GAME_CONFIG.rpc_url)
     
-    if success then
+    local mnemonic_cstr = self.ffi.new("char[?]", #GAME_CONFIG.player_mnemonic + 1)
+    self.ffi.copy(mnemonic_cstr, GAME_CONFIG.player_mnemonic)
+    
+    local dest_cstr = self.ffi.new("char[?]", #recipient_address + 1)
+    self.ffi.copy(dest_cstr, recipient_address)
+    
+    local result = self.ffi_lib.submit_balance_transfer_subxt(url_cstr, mnemonic_cstr, dest_cstr, amount)
+    
+    if result.success then
+        local tx_hash = self.ffi.string(result.tx_hash)
+        self.ffi_lib.free_string(result.tx_hash)
         print("✅ Transfer completed")
         print("   Transaction hash:", tx_hash)
-        
-        -- Update balance
         self.balance = self.balance - amount - GAME_CONFIG.transaction_fee
-        
         return true, tx_hash
     else
-        print("❌ Transfer failed")
-        print("   Error:", tx_hash)
-        return false, tx_hash
+        local err_str = self.ffi.string(result.error)
+        self.ffi_lib.free_string(result.error)
+        print("❌ Transfer failed:", err_str)
+        return false, err_str
     end
 end
 
@@ -145,7 +181,8 @@ function GameState:get_player_stats()
     print("\n📊 Player Statistics")
     print("===================")
     print("Address:", self.player_address)
-    print("Balance:", string.format("%.5f %s", self.balance, self.chain_config.token_symbol))
+    local balance_tokens = self.balance / (10 ^ GAME_CONFIG.token_decimals)
+    print(string.format("Balance: %.5f %s", balance_tokens, GAME_CONFIG.token_symbol))
     print("Connected:", self.is_connected and "Yes" or "No")
     print("Can play:", self:has_sufficient_balance() and "Yes" or "No")
 end
@@ -153,20 +190,7 @@ end
 -- Refresh balance
 function GameState:refresh_balance()
     print("\n🔄 Refreshing balance...")
-    
-    local success, account = pcall(function()
-        return self.rpc:get_account_info(self.player_address)
-    end)
-    
-    if success and account then
-        self.balance = account.data.free_tokens or account.data.free or 0
-        print("✅ Balance refreshed")
-        print("   New balance:", string.format("%.5f %s", self.balance, self.chain_config.token_symbol))
-        return true
-    else
-        print("❌ Failed to refresh balance")
-        return false
-    end
+    return self:check_connection()
 end
 
 -- Main game loop

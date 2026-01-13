@@ -1,55 +1,51 @@
+#!/usr/bin/env luajit
 -- examples/basic_usage.lua
 -- Basic usage example for SubLua SDK
+--
+-- Install SubLua:
+--   curl -sSL https://raw.githubusercontent.com/MontaQLabs/sublua/main/install_sublua.sh | bash
+--
+-- Then run:
+--   luajit examples/basic_usage.lua
 
-local sdk = require("sublua")
+-- For local development, add path (not needed after luarocks install)
+package.path = package.path .. ";./?.lua;./?/init.lua;./sublua/?.lua"
+
+local sublua = require("sublua")
 
 print("🚀 SubLua Basic Usage Example")
 print("=============================")
+print("Version:", sublua.version)
+print("")
 
--- Configuration
-local RPC_URL = "wss://westend-rpc.polkadot.io"
-local TEST_MNEMONIC = "helmet myself order all require large unusual verify ritual final apart nut"
+-- 1. Load FFI (auto-finds the library!)
+print("1️⃣ Loading FFI...")
+sublua.ffi()  -- That's it! No paths needed.
+print("✅ FFI loaded\n")
 
--- 1. Connect to the chain
-print("\n1️⃣ Connecting to Westend testnet...")
-local rpc = sdk.rpc.new(RPC_URL)
-local chain_config = sdk.chain_config.detect_from_url(RPC_URL)
+-- 2. Create a signer from mnemonic
+print("2️⃣ Creating signer from mnemonic...")
+local signer = sublua.signer().from_mnemonic(
+    "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
+)
 
-print("Chain:", chain_config.name)
-print("Token:", chain_config.token_symbol)
-print("Decimals:", chain_config.token_decimals)
+local polkadot_addr = signer:get_ss58_address(0)   -- Polkadot
+local westend_addr = signer:get_ss58_address(42)  -- Westend
 
--- 2. Create a signer
-print("\n2️⃣ Creating signer from mnemonic...")
-local signer = sdk.signer.from_mnemonic(TEST_MNEMONIC)
-local address = signer:get_ss58_address(chain_config.ss58_prefix)
-print("Address:", address)
+print("   Polkadot:", polkadot_addr)
+print("   Westend:", westend_addr)
+print("")
 
--- 3. Check account balance
-print("\n3️⃣ Checking account balance...")
-local account = rpc:get_account_info(address)
+-- 3. Create a signer from seed (hex)
+print("3️⃣ Creating signer from seed...")
+local seed = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+local signer2 = sublua.signer().new(seed)
+print("   Address:", signer2:get_ss58_address(0))
+print("")
 
-if account then
-    local balance = account.data.free_tokens or account.data.free or 0
-    print("Balance:", string.format("%.5f %s", balance, chain_config.token_symbol))
-    print("Nonce:", account.nonce)
-else
-    print("Account not found - needs funding")
-end
-
--- 4. Transfer example (commented out for safety)
-print("\n4️⃣ Transfer example (commented out for safety)")
-print("To enable transfers, uncomment the code below:")
-
---[[
-local recipient = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-local amount = 1000000000000  -- 1 WND in units
-
-print("Transferring", amount / (10 ^ chain_config.token_decimals), chain_config.token_symbol, "to", recipient)
-
-local tx_hash = signer:transfer(rpc, recipient, amount)
-print("Transaction hash:", tx_hash)
---]]
-
-print("\n✅ Basic usage example completed!")
-print("Check the SDK documentation for more advanced features.")
+print("✅ Basic setup complete!")
+print("")
+print("📚 Next steps:")
+print("   - Run 'luajit examples/websocket_example.lua' for live blockchain queries")
+print("   - Run 'luajit examples/multisig_example.lua' for multi-signature wallets")
+print("   - See documentation: https://github.com/MontaQLabs/sublua")

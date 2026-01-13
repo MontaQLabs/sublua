@@ -1,6 +1,9 @@
 -- test/run_tests.lua
 -- Comprehensive test suite for SubLua SDK
 
+-- Add local path for development
+package.path = package.path .. ";./?.lua;./?/init.lua;./sublua/?.lua"
+
 local sdk = require("sublua")
 local polkadot_ffi = require("sublua.polkadot_ffi")
 
