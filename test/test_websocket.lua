@@ -1,7 +1,8 @@
 #!/usr/bin/env luajit
 -- Test WebSocket connection management
 
-package.path = package.path .. ";./?.lua;./?/init.lua"
+-- Add paths for local development (works from root or test/ directory)
+package.path = package.path .. ";./?.lua;./?/init.lua;./sublua/?.lua;./sublua/?/init.lua;../?.lua;../?/init.lua"
 
 local sublua = require("sublua")
 

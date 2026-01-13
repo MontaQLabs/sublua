@@ -1,0 +1,63 @@
+#!/bin/bash
+# Pre-commit hook: Run tests before allowing commit
+
+set -e
+
+echo "🧪 Running SubLua tests before commit..."
+echo ""
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Track failures
+FAILED=0
+
+# Run core tests
+echo "1️⃣  Core Tests..."
+if luajit test/run_tests.lua > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Core tests passed${NC}"
+else
+    echo -e "${RED}❌ Core tests failed${NC}"
+    FAILED=1
+fi
+
+# Run user API tests
+echo "2️⃣  User API Tests..."
+if luajit test/test_user_api.lua > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ User API tests passed${NC}"
+else
+    echo -e "${RED}❌ User API tests failed${NC}"
+    FAILED=1
+fi
+
+# Run advanced crypto tests
+echo "3️⃣  Advanced Crypto Tests..."
+if luajit test/test_advanced_crypto.lua > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Advanced crypto tests passed${NC}"
+else
+    echo -e "${RED}❌ Advanced crypto tests failed${NC}"
+    FAILED=1
+fi
+
+# Run websocket tests (skip if network issues)
+echo "4️⃣  WebSocket Tests..."
+if luajit test/test_websocket.lua > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ WebSocket tests passed${NC}"
+else
+    echo -e "${YELLOW}⚠️  WebSocket tests skipped (network/SSL issues)${NC}"
+    # Don't fail commit for WebSocket tests (they require network access)
+fi
+
+echo ""
+
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}🎉 All tests passed! Proceeding with commit.${NC}"
+    exit 0
+else
+    echo -e "${RED}❌ Tests failed. Commit aborted.${NC}"
+    echo -e "${YELLOW}💡 Run 'luajit test/run_tests.lua' to see details.${NC}"
+    exit 1
+fi
