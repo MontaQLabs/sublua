@@ -1,64 +1,43 @@
-# Makefile for SubLua
-# Simple installation and management
+# Root Makefile for SubLua
 
-.PHONY: install uninstall test clean build-ffi
+.PHONY: all clean build test example
 
-# Default target
-all: install
+all: build
 
-# Install SubLua
-install: build-ffi
-	@echo "🚀 Installing SubLua..."
-	@luarocks install sublua-scm-0.rockspec
-	@echo "✅ Installation complete!"
+build:
+	$(MAKE) -C c_src
 
-# Build FFI library
-build-ffi:
-	@echo "🔧 Building FFI library..."
-	@cd polkadot-ffi-subxt && cargo build --release
-	@echo "✅ FFI library built!"
-
-# Uninstall SubLua
-uninstall:
-	@echo "🗑️  Uninstalling SubLua..."
-	@luarocks remove sublua
-	@echo "✅ Uninstallation complete!"
-
-# Run tests
-test: install
-	@echo "🧪 Running tests..."
-	@luajit test/run_tests.lua
-
-# Test installation
-test-install: install
-	@echo "🧪 Testing installation..."
-	@luajit test/test_installation.lua
-
-# Run basic example
-example: install
-	@echo "💡 Running basic example..."
-	@luajit examples/basic_usage.lua
-
-# Run game integration example
-game: install
-	@echo "🎮 Running game integration example..."
-	@luajit examples/game_integration.lua
-
-# Clean build artifacts
 clean:
-	@echo "🧹 Cleaning build artifacts..."
-	@cd polkadot-ffi-subxt && cargo clean
-	@echo "✅ Clean complete!"
+	$(MAKE) -C c_src clean
 
-# Show help
-help:
-	@echo "SubLua Makefile Commands:"
-	@echo "  install      - Install SubLua via LuaRocks"
-	@echo "  build-ffi    - Build the FFI library"
-	@echo "  uninstall    - Remove SubLua"
-	@echo "  test         - Run test suite"
-	@echo "  test-install - Test installation"
-	@echo "  example      - Run basic usage example"
-	@echo "  game         - Run game integration example"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  help         - Show this help"
+test: build
+	@echo "Running all tests..."
+	@cd test && lua test_crypto.lua && lua test_scale.lua && lua test_keyring.lua && lua test_transaction.lua && lua test_rpc.lua && lua test_integration.lua
+
+test-crypto: build
+	cd test && lua test_crypto.lua
+
+test-scale: build
+	cd test && lua test_scale.lua
+
+test-keyring: build
+	cd test && lua test_keyring.lua
+
+test-transaction: build
+	cd test && lua test_transaction.lua
+
+test-rpc: build
+	cd test && lua test_rpc.lua
+
+test-integration: build
+	cd test && lua test_integration.lua
+
+test-core: build
+	cd test && lua test_core.lua
+
+example: build
+	lua examples/transfer_demo.lua
+
+install: build
+	@echo "To install, copy c_src/polkadot_crypto.so to your LUA_CPATH"
+	@echo "and lua/polkadot/ to your LUA_PATH"

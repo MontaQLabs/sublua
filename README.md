@@ -1,581 +1,77 @@
+# SubLua
 
+SubLua is a lightweight, high-performance Polkadot/Substrate SDK for Lua (5.1-5.4). It is built with **Pure C** and **Pure Lua**, requiring no Rust or complex toolchains.
 
-<img src="https://github.com/user-attachments/assets/176ee468-6acb-43e5-8792-c16ff2ecd2d0" alt="SubLua SDK Logo Design" width="300">
+## Features
 
-# SubLua - Substrate SDK for Lua
+-   **Native Crypto**: Ed25519, Blake2b, and xxHash implemented in optimized C.
+-   **SS58 Support**: Full address encoding/decoding with checksums.
+-   **SCALE Codec**: Pure Lua implementation of the SCALE serialization format.
+-   **RPC Client**: Easy-to-use HTTP/HTTPS client for interacting with any Substrate node.
+-   **Transactions**: Build, sign, and submit extrinsics (V4) from Lua.
+-   **Zero Rust**: Works without the massive Rust dependency tree.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Lua](https://img.shields.io/badge/Lua-5.1+-blue.svg)](https://www.lua.org/)
-[![Substrate](https://img.shields.io/badge/Substrate-Compatible-green.svg)](https://substrate.io/)
-
-SubLua is a high-performance Lua SDK for interacting with Substrate-based blockchains. It provides type-safe cryptographic operations, transaction submission, and chain data querying through a clean Lua API.
-
-## 🚀 Features
-
-- **Type-Safe Cryptography**: Sr25519 keypair management, signing, and address generation
-- **Transaction Support**: Submit transactions to any Substrate-based blockchain
-- **Dynamic Metadata** ✨: Automatic pallet discovery, call index lookup, and runtime compatibility checking via subxt SCALE codec
-- **Advanced Crypto** 🔐 (v0.2.0+): Multi-signature accounts, proxy accounts, and on-chain identity management
-- **WebSocket Management** 🌐 (v0.3.0+): Connection pooling, automatic reconnection, heartbeat monitoring, real-time queries
-- **Multi-Chain Support**: Works with Polkadot, Kusama, Westend, and any custom Substrate chain
-- **High Performance**: Optimized FFI bindings to Rust (subxt + sp-core)
-- **Production Ready**: Comprehensive error handling, security best practices, and testing
-
-## 📦 Installation
-
-SubLua follows a clean installation flow similar to `pip install` for Python.
+## Installation
 
 ### Prerequisites
 
-- **LuaJIT** (required for FFI support)
-- LuaRocks (Lua package manager)
+-   A C compiler (`gcc` or `clang`)
+-   Lua 5.1, 5.2, 5.3, 5.4 or LuaJIT
+-   `luasocket` and `lua-cjson` (for RPC)
 
-> **Note**: SubLua requires LuaJIT for FFI functionality. Standard Lua is not supported.
+### Build from Source
 
-### Clean Installation Flow
-
-#### Step 1: Install Sublua SDK
 ```bash
-# Install Sublua via LuaRocks
-luarocks install sublua
-```
-
-#### Step 2: Download FFI Library
-```bash
-# Download the appropriate FFI library for your platform
-./download_ffi.sh
-```
-
-#### Step 3: Use Sublua in Your Code
-
-**Basic Usage:**
-```lua
--- Load Sublua SDK
-local sublua = require("sublua")
-
--- Load FFI library (auto-detects platform)
-sublua.ffi()
-
--- Create a signer from seed
-local seed = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-local signer = sublua.signer().new(seed)
-
--- Generate address for any chain
-local polkadot_address = signer:get_ss58_address(0)  -- Polkadot
-local kusama_address = signer:get_ss58_address(2)    -- Kusama
-local westend_address = signer:get_ss58_address(42)  -- Westend
-
-print("Polkadot:", polkadot_address)
-```
-
-**Custom FFI Path:**
-```lua
-local sublua = require("sublua")
-
--- Specify custom FFI library path
-sublua.ffi("./path/to/your/libpolkadot_ffi.dylib")
-
--- Or use auto-detection
-sublua.ffi()  -- Automatically finds the right library for your platform
-```
-
-**Complete Example - Query Balance:**
-```lua
-local sublua = require("sublua")
-local polkadot_ffi = require("sublua.polkadot_ffi")
-
--- Load FFI
-sublua.ffi()
-
--- Query balance from Polkadot
-local ffi = polkadot_ffi.ffi
-local ffi_lib = polkadot_ffi.get_lib()
-
-local node_url = "wss://rpc.polkadot.io"
-local address = "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB"
-
-local url_cstr = ffi.new("char[?]", #node_url + 1)
-ffi.copy(url_cstr, node_url)
-
-local addr_cstr = ffi.new("char[?]", #address + 1)
-ffi.copy(addr_cstr, address)
-
-local result = ffi_lib.query_balance(url_cstr, addr_cstr)
-if result.success then
-    local data = ffi.string(result.data)
-    ffi_lib.free_string(result.data)
-    print("Balance:", data)
-end
-```
-
-### Alternative Installation Methods
-
-#### Option 1: Automated Install Script
-```bash
-# Clone and install with one command
-git clone https://github.com/MontaQLabs/sublua.git
-cd sublua
-chmod +x install.sh
-./install.sh
-```
-
-#### Option 2: Manual Compilation
-```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/MontaQLabs/sublua.git
 cd sublua
 
-# Build FFI library
-cd polkadot-ffi-subxt
-cargo build --release
-
-# Install Lua dependencies
-luarocks install luasocket lua-cjson luasec
-
-# Install SubLua
-luarocks make sublua-0.1.2-1.rockspec
+# Build the C module
+make
 ```
 
-> 📖 **Detailed Installation Guide**: See [INSTALL.md](INSTALL.md) for comprehensive installation instructions, troubleshooting, and platform-specific setup.
-> 
-> 🚀 **Publishing Guide**: See [PUBLISHING.md](PUBLISHING.md) for instructions on publishing SubLua to LuaRocks repository.
+This will produce `c_src/polkadot_crypto.so`.
 
-## 🚀 Quick Reference
-
-### Custom FFI Path Options
-
-Sublua automatically detects your platform and loads the correct FFI library, but you can specify a custom path:
+## Quick Start
 
 ```lua
--- Option 1: Auto-detect (recommended)
-sublua.ffi()
+local polkadot = require("polkadot")
+local keyring = require("polkadot.keyring")
 
--- Option 2: Custom path
-sublua.ffi("./custom/path/libpolkadot_ffi.dylib")
+-- Connect to Westend
+local api = polkadot.connect("https://westend-rpc.polkadot.io")
 
--- Option 3: Environment-specific
-if os.getenv("SUBLUA_FFI_PATH") then
-    sublua.ffi(os.getenv("SUBLUA_FFI_PATH"))
-else
-    sublua.ffi()  -- fallback to auto-detect
-end
+-- Generate a keyring from a 32-byte seed
+local alice = keyring.from_seed("0x...")
+
+-- Query account balance
+local info = api:system_account(alice.address)
+print("Balance:", info.data.free_formated)
 ```
 
-### Common Operations
+## Testing
 
-**Create Signer:**
-```lua
--- From seed
-local signer = sublua.signer().new("0x...")
-
--- From mnemonic
-local signer = sublua.signer().from_mnemonic("word word word...")
-```
-
-**Generate Addresses:**
-```lua
-local polkadot = signer:get_ss58_address(0)   -- Polkadot
-local kusama = signer:get_ss58_address(2)     -- Kusama
-local westend = signer:get_ss58_address(42)   -- Westend
-```
-
-**Query Balance:**
-```lua
-local result = ffi_lib.query_balance(node_url_cstr, address_cstr)
-```
-
-**Submit Transfer:**
-```lua
-local result = ffi_lib.submit_balance_transfer_subxt(
-    node_url_cstr, 
-    mnemonic_cstr, 
-    dest_addr_cstr, 
-    amount
-)
-```
-
-## 🛠️ Development Commands
-
-The Makefile provides convenient commands for development:
-
-```bash
-make install    # Install SubLua
-make test       # Run test suite
-make example    # Run basic usage example
-make game       # Run game integration example
-make clean      # Clean build artifacts
-make uninstall  # Remove SubLua
-make help       # Show all commands
-```
-
-## 🎯 Quick Start
-
-```lua
-local sdk = require("sdk.init")
-
--- Connect to a chain
-local rpc = sdk.rpc.new("wss://westend-rpc.polkadot.io")
-
--- Create a signer from mnemonic
-local signer = sdk.signer.from_mnemonic("your twelve word mnemonic phrase here")
-
--- Get account info
-local account = rpc:get_account_info(signer:get_ss58_address(42))
-print("Balance:", account.data.free_tokens, account.data.token_symbol)
-
--- Transfer tokens
-local tx_hash = signer:transfer(rpc, "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", 1000000000000)
-print("Transaction hash:", tx_hash)
-```
-
-## 📚 API Reference
-
-### SDK Core
-
-#### `sdk.rpc.new(url)`
-Creates a new RPC client connection.
-
-```lua
-local rpc = sdk.rpc.new("wss://westend-rpc.polkadot.io")
-```
-
-#### `rpc:get_account_info(address)`
-Fetches account information including balance and nonce.
-
-```lua
-local account = rpc:get_account_info("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY")
-print("Balance:", account.data.free_tokens)
-print("Nonce:", account.nonce)
-```
-
-### Signer Management
-
-#### `sdk.signer.from_mnemonic(mnemonic)`
-Creates a signer from a mnemonic phrase.
-
-```lua
-local signer = sdk.signer.from_mnemonic("your twelve word mnemonic phrase here")
-```
-
-#### `signer:get_ss58_address(prefix)`
-Generates an SS58 address for the specified network prefix.
-
-```lua
-local address = signer:get_ss58_address(42)  -- Westend
-local address = signer:get_ss58_address(0)   -- Polkadot
-```
-
-#### `signer:transfer(rpc, destination, amount)`
-Submits a balance transfer transaction.
-
-```lua
-local tx_hash = signer:transfer(rpc, "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", 1000000000000)
-```
-
-### Chain Configuration
-
-#### `sdk.chain_config.detect_from_url(url)`
-Automatically detects chain configuration from RPC URL.
-
-```lua
-local config = sdk.chain_config.detect_from_url("wss://westend-rpc.polkadot.io")
-print("Token:", config.token_symbol)
-print("Decimals:", config.token_decimals)
-```
-
-## 🔧 Advanced Usage
-
-### Custom Chain Configuration
-
-```lua
-local config = {
-    name = "Custom Chain",
-    token_symbol = "CST",
-    token_decimals = 12,
-    ss58_prefix = 42,
-    existential_deposit = 1000000000000
-}
-
-local rpc = sdk.rpc.new("wss://your-chain-rpc.com", config)
-```
-
-### Batch Transactions
-
-```lua
--- Create multiple transactions
-local batch = sdk.extrinsic_builder.new(rpc)
-batch:balances_transfer(dest1, amount1)
-batch:balances_transfer(dest2, amount2)
-
--- Submit batch
-local tx_hash = signer:submit_batch(batch)
-```
-
-### Event Monitoring
-
-```lua
--- Subscribe to events
-local subscription = rpc:subscribe_events(function(event)
-    if event.pallet == "Balances" and event.event == "Transfer" then
-        print("Transfer:", event.data)
-    end
-end)
-```
-
-## 🔐 Advanced Cryptographic Features (New in v0.2.0!)
-
-SubLua now supports advanced cryptographic patterns used in production Substrate applications.
-
-### Multi-Signature Accounts
-
-Create multi-sig accounts requiring multiple signers for transactions:
-
-```lua
-local multisig_mod = sublua.multisig()
-
--- Create 2-of-3 multisig
-local info, err = multisig_mod.create_address(
-    {
-        "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-        "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
-        "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y"
-    },
-    2  -- Threshold: 2 signatures required
-)
-
-print("Multisig Address:", info.multisig_address)
-```
-
-### Proxy Accounts
-
-Delegate account permissions with fine-grained control:
-
-```lua
-local proxy_mod = sublua.proxy()
-
--- Add a proxy with limited permissions
-local tx_hash, err = proxy_mod.add(
-    "wss://westend-rpc.polkadot.io",
-    main_account_mnemonic,
-    delegate_address,
-    proxy_mod.TYPES.NON_TRANSFER,  -- Can't transfer funds
-    0  -- No delay
-)
-
--- Execute transfer through proxy
-proxy_mod.transfer(
-    "wss://westend-rpc.polkadot.io",
-    proxy_mnemonic,
-    main_account_address,
-    recipient_address,
-    1000000000000  -- 1 WND
-)
-```
-
-### On-Chain Identity
-
-Set verifiable identity information:
-
-```lua
-local identity_mod = sublua.identity()
-
--- Set identity
-local tx_hash, err = identity_mod.set(
-    "wss://westend-rpc.polkadot.io",
-    mnemonic,
-    {
-        display_name = "Alice",
-        web = "https://alice.example.com",
-        email = "alice@example.com",
-        twitter = "@alice"
-    }
-)
-
--- Query identity
-local identity_data = identity_mod.query("wss://westend-rpc.polkadot.io", address)
-```
-
-**Use Cases:**
-- **Multi-sig**: Treasury management, DAO governance, secure cold storage
-- **Proxy**: Hot/cold wallet separation, bot automation, delegated voting
-- **Identity**: Validator branding, proposal authorship, social verification
-
-See [examples/](examples/) for complete working examples.
-
-## 🌐 WebSocket Connection Management (New in v0.3.0!)
-
-SubLua now features enterprise-grade WebSocket connection management with automatic reconnection and connection pooling.
-
-### Automatic Connection Pooling
-
-Connections are automatically pooled and reused across your application:
-
-```lua
-local ws = sublua.ws()  -- or sublua.websocket()
-
--- First call creates connection
-ws.connect("wss://westend-rpc.polkadot.io")
-
--- Subsequent queries reuse the connection
-local balance = ws.query_balance("wss://westend-rpc.polkadot.io", address)
-```
-
-### Automatic Reconnection
-
-Connections automatically reconnect on failure with exponential backoff:
-- **Backoff**: 100ms → 200ms → 400ms → ... → 30s max
-- **Max attempts**: 10 reconnection attempts
-- **Completely transparent**: Your code doesn't need to handle reconnection logic
-
-### Connection Statistics
-
-Monitor connection health in real-time:
-
-```lua
-local stats = ws.get_stats("wss://westend-rpc.polkadot.io")
--- Returns:
--- {
---   uptime_seconds = 42,
---   reconnect_count = 1,
---   total_messages = 15,
---   last_ping_seconds_ago = 5
--- }
-```
-
-### Connection Management
-
-```lua
--- List active connections
-local info = ws.list_connections()
-print("Active connections:", info.count)
-
--- Disconnect specific connection
-ws.disconnect("wss://westend-rpc.polkadot.io")
-
--- Disconnect all connections
-ws.disconnect_all()
-```
-
-**Key Features:**
-- ✅ Connection pooling (one connection per endpoint)
-- ✅ Heartbeat monitoring (30-second intervals)
-- ✅ Automatic reconnection with exponential backoff
-- ✅ Statistics tracking for debugging
-- ✅ Multiple simultaneous connections
-- ✅ Clean shutdown and cleanup
-
-**Use Cases:**
-- Real-time blockchain monitoring
-- High-frequency balance queries
-- Gaming applications with live data
-- DeFi applications with price feeds
-- Multi-chain applications
-
-## 🔍 Dynamic Metadata (New in v0.1.6!)
-
-SubLua now supports dynamic metadata parsing using subxt's SCALE codec. No more hardcoded call indices!
-
-### Fetch Chain Metadata
-
-```lua
-local metadata = sublua.metadata()
-
--- Get runtime information
-local info = metadata.fetch_metadata("wss://westend-rpc.polkadot.io")
-print("Spec Version:", info.spec_version)        -- 1020001
-print("Pallet Count:", info.pallet_count)        -- 68
-```
-
-### Discover Pallets
-
-```lua
--- Get all available pallets
-local pallets = metadata.get_pallets("wss://westend-rpc.polkadot.io")
--- Returns: ["System", "Balances", "Staking", ...]
-
-for _, pallet_name in ipairs(pallets) do
-    print("Pallet:", pallet_name)
-end
-```
-
-### Dynamic Call Index Lookup
-
-```lua
--- Automatically discover call indices (no hardcoding!)
-local indices = metadata.get_dynamic_call_index(
-    "wss://westend-rpc.polkadot.io",
-    "Balances",
-    "transfer_keep_alive"
-)
--- Returns: {4, 3}  -- [pallet_index, call_index]
-
-print("Balances::transfer_keep_alive ->", indices[1], indices[2])
-```
-
-### Runtime Compatibility Check
-
-```lua
--- Check if runtime version matches expected
-local compatible, message = metadata.check_compatibility(
-    "wss://westend-rpc.polkadot.io",
-    1020001  -- expected spec_version
-)
-
-if compatible then
-    print("✅ Runtime version matches!")
-else
-    print("⚠️ Runtime mismatch:", message)
-end
-```
-
-### Why Dynamic Metadata?
-
-- ✅ **No Hardcoding**: Automatically discovers call indices from any chain
-- ✅ **Future-Proof**: Works with runtime upgrades without code changes
-- ✅ **Custom Chains**: Support any Substrate chain automatically
-- ✅ **SCALE Codec**: Full metadata parsing via subxt (Rust)
-- ✅ **Production Ready**: Used by Polkadot.js and other major tools
-
-## 🧪 Testing
-
-Run the test suite:
+SubLua includes a comprehensive test suite covering all components:
 
 ```bash
 # Run all tests
-luajit test/run_tests.lua
+make test
 
-# Run specific test
-luajit test/test_transfers.lua
+# Run specific test suites
+make test-crypto      # Crypto module tests
+make test-scale       # SCALE codec tests
+make test-keyring     # Keyring tests
+make test-transaction # Transaction builder tests
+make test-rpc         # RPC client tests
+make test-integration # Integration tests
 ```
 
-## 📖 Examples
+See [test/README.md](test/README.md) for detailed testing documentation.
 
-See the `examples/` directory for comprehensive examples:
+## Architecture
 
-- `examples/basic_usage.lua` - Basic SDK usage
-- `examples/game_integration.lua` - Game integration example
-- `examples/advanced_features.lua` - Advanced features demonstration
+See [architecture.md](architecture.md) for a detailed breakdown of the technical components and design decisions.
 
-## 🤝 Contributing
+## License
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Documentation**: [docs.sublua.dev](https://docs.sublua.dev)
-- **Issues**: [GitHub Issues](https://github.com/your-org/sublua/issues)
-- **Discord**: [SubLua Community](https://discord.gg/sublua)
-
-## 🙏 Acknowledgments
-
-- [Substrate](https://substrate.io/) - The blockchain framework
-- [subxt](https://github.com/paritytech/subxt) - Rust Substrate client
-- [LuaJIT](https://luajit.org/) - High-performance Lua implementation
+MIT
