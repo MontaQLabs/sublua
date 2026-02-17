@@ -21,12 +21,13 @@ ifeq ($(UNAME_S),Darwin)
 	LDFLAGS += -undefined dynamic_lookup
 endif
 
-TARGET=polkadot_crypto.$(EXT)
-SRC=polkadot_crypto.c vendor/monocypher.c vendor/xxhash.c
+TARGET=../sublua/polkadot_crypto.so
+SRC=polkadot_crypto.c vendor/monocypher.c vendor/xxhash.c vendor/tweetnacl.c
 
 all: $(TARGET)
 
 $(TARGET): $(SRC)
+	mkdir -p ../sublua
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 clean:

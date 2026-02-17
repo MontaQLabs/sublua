@@ -1,8 +1,8 @@
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 local json = require("cjson")
-local crypto = require("polkadot_crypto")
-local Metadata = require("polkadot.metadata")
+local crypto = require("polkadot_crypto") -- Found in package.cpath
+local Metadata = require("sublua.metadata")
 
 local RPC = {}
 RPC.__index = RPC

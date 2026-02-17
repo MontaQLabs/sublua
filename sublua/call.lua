@@ -1,7 +1,7 @@
 -- polkadot/call.lua
 -- Helper functions for constructing Substrate calls
 
-local Scale = require("polkadot.scale")
+local Scale = require("sublua.scale")
 local crypto = require("polkadot_crypto")
 
 local Call = {}
@@ -12,15 +12,10 @@ local function to_hex(s)
 end
 
 -- Encode call index
--- In Substrate, call index is encoded as u16 in little-endian
--- Format: (call_index << 8) | module_index
--- But encoded as bytes: [call_index, module_index] (little-endian)
--- So for module 4, call 0: bytes are [0x00, 0x04] = 0x0004 hex
--- When read as little-endian u16: 0x0400
+-- In Substrate, call index is two bytes: [pallet_index, call_index]
+-- For Balances(4).transfer_allow_death(0): bytes are [0x04, 0x00]
 function Call.encode_index(module_index, call_index)
-    -- Encode as two u8s: call_index (low byte), module_index (high byte)
-    -- But in little-endian, low byte comes first
-    return string.char(call_index, module_index)
+    return string.char(module_index, call_index)
 end
 
 -- Encode MultiAddress::Id (AccountId)
@@ -35,7 +30,7 @@ end
 -- dest_pubkey: 32-byte destination public key
 -- amount: amount in smallest unit (e.g., 10^12 for 1 DOT/WND)
 function Call.encode_transfer(module_index, call_index, dest_pubkey, amount)
-    local Scale = require("polkadot.scale")
+    local Scale = require("sublua.scale")
     
     -- Call index
     local call_idx = Call.encode_index(module_index, call_index)

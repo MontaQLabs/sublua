@@ -35,6 +35,8 @@ function Keyring.from_uri(uri)
         return Keyring.from_seed(string.rep("a", 32)) -- Mock Ed25519 "Alice"
     elseif uri == "//Bob" then
         return Keyring.from_seed(string.rep("b", 32)) -- Mock Ed25519 "Bob"
+    elseif uri == "//Charlie" then
+        return Keyring.from_seed(string.rep("c", 32)) -- Mock Ed25519 "Charlie"
     end
     error("Keyring URI parsing not fully implemented in Pure Lua (requires BIP39/PBKDF2)")
 end

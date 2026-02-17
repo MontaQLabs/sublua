@@ -1,8 +1,8 @@
 -- test/run_tests.lua
 -- Test runner for all SubLua tests
 
-package.cpath = package.cpath .. ";./c_src/?.so"
-package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua"
+package.cpath = "./sublua/?.so;" .. package.cpath
+package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local tests = {
     {name = "Crypto Module", file = "test_crypto.lua"},
@@ -10,6 +10,7 @@ local tests = {
     {name = "Keyring", file = "test_keyring.lua"},
     {name = "Transaction Builder", file = "test_transaction.lua"},
     {name = "RPC Client", file = "test_rpc.lua"},
+    {name = "XCM", file = "test_xcm.lua"},
     {name = "Integration", file = "test_integration.lua"},
 }
 
@@ -24,7 +25,7 @@ local function run_test(test_file)
     local result = os.execute("lua " .. full_path)
     os.execute("cd " .. original_dir .. " 2>/dev/null")
     
-    return result == 0
+    return result == true or result == 0
 end
 
 print("=" .. string.rep("=", 60))

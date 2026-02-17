@@ -1,11 +1,11 @@
 -- examples/transfer_demo.lua
-package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua"
-package.cpath = package.cpath .. ";./c_src/?.so"
+package.path = "./?.lua;./?/init.lua;" .. package.path
+package.cpath = "./sublua/?.so;" .. package.cpath
 
-local polkadot = require("polkadot")
-local Keyring = require("polkadot.keyring")
-local Transaction = require("polkadot.transaction")
-local Scale = require("polkadot.scale")
+local polkadot = require("sublua.init") -- Loads sublua/init.lua
+local Keyring = require("sublua.keyring")
+local Transaction = require("sublua.transaction")
+local Scale = require("sublua.scale")
 local crypto = require("polkadot_crypto")
 
 local url = "https://westend-rpc.polkadot.io"
@@ -13,7 +13,6 @@ print("Connecting to " .. url)
 local api = polkadot.connect(url)
 
 -- 1. Generate a Test Account (Ed25519)
--- Changing to Bob to generate a fresh transaction hash and avoid "Temporarily Banned"
 local alice = Keyring.from_uri("//Bob") 
 print("Test Account Address (Ed25519) [BOB]: " .. alice.address)
 
@@ -29,13 +28,13 @@ else
 end
 
 -- 3. Construct a Transfer Extrinsic
-local dest_pub = crypto.ed25519_keypair_from_seed(string.rep("b", 32))
+-- Send to Alice (mock seed 'a')
+local dest_pub = crypto.ed25519_keypair_from_seed(string.rep("a", 32))
 local dest_addr = crypto.ss58_encode(dest_pub, 42)
 print("Building transfer to: " .. dest_addr)
 
 -- Encode Call: Balances.transfer_allow_death
 -- Westend: Balances = 4, transfer_allow_death = 0.
--- Call Index: 04 00
 local call_index_hex = "0400"
 
 -- Dest: MultiAddress::Id (0x00) + 32-byte-pubkey
@@ -51,10 +50,21 @@ print("Encoded Call: " .. call_hex)
 -- 4. Get Chain State for Signing
 local genesis_hash = api:chain_getBlockHash(0)
 local runtime_ver = api:state_getRuntimeVersion()
+local has_meta, meta = pcall(api.get_metadata, api)
 
 print("Spec Version: " .. runtime_ver.specVersion)
 print("Tx Version: " .. runtime_ver.transactionVersion)
-print("Genesis Hash: " .. genesis_hash)
+
+local extensions = nil
+if has_meta and meta.extrinsic and meta.extrinsic.signed_extensions then
+    print("Using Extensions from Metadata")
+    extensions = {}
+    for _, ext in ipairs(meta.extrinsic.signed_extensions) do
+        table.insert(extensions, ext.identifier)
+    end
+else
+    print("WARNING: Using DEFAULT Westend Extensions (Metadata parsing failed or incomplete)")
+end
 
 local props = {
     specVersion = runtime_ver.specVersion,
@@ -64,16 +74,17 @@ local props = {
 }
 
 -- 5. Sign
-local signed_hex = Transaction.create_signed(call_hex, alice, info.nonce, props)
+local signed_hex = Transaction.create_signed(call_hex, alice, info.nonce, props, extensions)
 print("\nSigned Extrinsic (" .. #signed_hex/2 .. " bytes)")
+-- print(signed_hex)
 
 -- 6. Check Validity (Dry Run)
 print("\nChecking validity (payment_queryInfo)...")
 local s, fee_info = pcall(function() return api:payment_queryInfo(signed_hex) end)
 if s and fee_info and fee_info.partialFee then
     print("✅ Transaction is valid! Estimated Fee: " .. fee_info.partialFee)
+    print("   (Note: Validity means signature and extensions matched runtime expectations)")
 else
-    -- Note: This often fails if the signature is invalid OR if the node rejects it for other reasons (funds etc)
     print("⚠️ Transaction validation failed in queryInfo: " .. tostring(fee_info))
 end
 
@@ -86,8 +97,10 @@ else
     local err_msg = tostring(res)
     print("❌ Submission Failed: " .. err_msg)
     if err_msg:match("Inability to pay") then
-        print("   -> (This actually means the signature WAS valid, but funds insufficient)")
+        print("   -> (Signature VALID, Insufficient Funds)")
     elseif err_msg:match("Temporarily Banned") then
-        print("   -> (Success! The transaction is structurally valid and was seen before/cached)")
+        print("   -> (Signature VALID, Duplicate Transaction)")
+    elseif err_msg:match("Future") then
+        print("   -> (Signature VALID, Nonce too high)")
     end
 end

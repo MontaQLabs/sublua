@@ -2,10 +2,10 @@
 -- Comprehensive tests for keyring module
 
 -- Fix paths to work from test directory or root
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
-local Keyring = require("polkadot.keyring")
+local Keyring = require("sublua.keyring")
 local crypto = require("polkadot_crypto")
 
 local function to_hex(str)
@@ -134,7 +134,7 @@ test("Keyring: from_uri with //Alice", function()
 end)
 
 test("Keyring: from_uri error on unsupported URI", function()
-    local ok, err = pcall(function() Keyring.from_uri("//Bob") end)
+    local ok, err = pcall(function() Keyring.from_uri("//Unknown") end)
     assert(not ok)
 end)
 

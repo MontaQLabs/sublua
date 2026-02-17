@@ -1,13 +1,13 @@
 -- test/test_transfer.lua
 -- Test transfer transaction creation and validation
 
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
-local polkadot = require("polkadot")
-local Keyring = require("polkadot.keyring")
-local Transaction = require("polkadot.transaction")
-local Scale = require("polkadot.scale")
+local polkadot = require("sublua")
+local Keyring = require("sublua.keyring")
+local Transaction = require("sublua.transaction")
+local Scale = require("sublua.scale")
 local crypto = require("polkadot_crypto")
 
 local function to_hex(str)
@@ -118,16 +118,22 @@ print("   ✅ Transaction structure valid\n")
 
 -- Test 6: Verify signature
 print("6. Verifying signature...")
--- Reconstruct payload
-local era = Scale.encode_compact(0)
+-- Reconstruct payload matching Transaction.create_signed signed extensions:
+-- Extra: era(0x00) + compact_nonce + compact_tip + metadata_mode(0x00)
+-- Additional: u32_specVersion + u32_txVersion + genesis + checkpoint + metadata_option_none(0x00)
+local era = "\0" -- Immortal era byte
 local nonce_enc = Scale.encode_compact(0)
 local tip_enc = Scale.encode_compact(0)
+local metadata_mode = "\0" -- CheckMetadataHash mode byte (disabled)
 local spec_ver = Scale.encode_u32(props.specVersion)
 local tx_ver = Scale.encode_u32(props.txVersion)
 local genesis = from_hex(props.genesisHash:gsub("^0x", ""))
 local block_hash = from_hex(props.finalizedHash:gsub("^0x", ""))
+local metadata_additional = "\0" -- CheckMetadataHash additional (Option::None)
 
-local payload = call_bytes .. era .. nonce_enc .. tip_enc .. spec_ver .. tx_ver .. genesis .. block_hash
+local extra = era .. nonce_enc .. tip_enc .. metadata_mode
+local additional = spec_ver .. tx_ver .. genesis .. block_hash .. metadata_additional
+local payload = call_bytes .. extra .. additional
 if #payload > 256 then
     payload = crypto.blake2b(payload, 32)
 end

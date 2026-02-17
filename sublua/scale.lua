@@ -52,7 +52,7 @@ function Scale.encode_compact(n)
         assert(len >= 4, "BigInt mode requires at least 4 bytes")
         local header = (len - 4) * 4 + 3
         local res = string.char(header)
-        for i = len, 1, -1 do  -- Most significant byte first
+        for i = 1, len do  -- Little-endian: least significant byte first
             res = res .. string.char(bytes[i])
         end
         return res
@@ -90,7 +90,7 @@ function Scale.decode_compact(data, offset)
     else
         -- BigInt mode (0b11): length = (byte >> 2) + 4
         local len = math.floor(b1 / 4) + 4
-        assert(offset + len - 1 <= #data, "insufficient data for bigint compact")
+        assert(offset + len <= #data, "insufficient data for bigint compact")
         
         -- Read len bytes as little-endian integer
         local val = 0
@@ -98,7 +98,7 @@ function Scale.decode_compact(data, offset)
             local byte = string.byte(data, offset + 1 + i)
             val = val + byte * (256^i)
         end
-        return val, offset + len
+        return val, offset + 1 + len
     end
 end
 

@@ -2,10 +2,10 @@
 -- Comprehensive tests for RPC client (mock/unit tests)
 
 -- Fix paths to work from test directory or root
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
-local RPC = require("polkadot.rpc")
+local RPC = require("sublua.rpc")
 local crypto = require("polkadot_crypto")
 
 local function to_hex(str)

@@ -2,13 +2,13 @@
 -- Integration tests (may require network access)
 
 -- Fix paths to work from test directory or root
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
-local polkadot = require("polkadot")
-local Keyring = require("polkadot.keyring")
-local Transaction = require("polkadot.transaction")
-local Scale = require("polkadot.scale")
+local polkadot = require("sublua")
+local Keyring = require("sublua.keyring")
+local Transaction = require("sublua.transaction")
+local Scale = require("sublua.scale")
 local crypto = require("polkadot_crypto")
 
 local tests_passed = 0

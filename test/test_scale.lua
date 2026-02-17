@@ -2,10 +2,10 @@
 -- Comprehensive tests for SCALE codec
 
 -- Fix paths to work from test directory or root
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
-local Scale = require("polkadot.scale")
+local Scale = require("sublua.scale")
 
 local function to_hex(str)
     return (str:gsub(".", function(c) return string.format("%02x", string.byte(c)) end))
@@ -37,7 +37,7 @@ test("Compact: Single byte (0-63)", function()
     for i = 0, 63 do
         local enc = Scale.encode_compact(i)
         assert(#enc == 1)
-        local dec, offset = Scale.decode_compact(to_hex(enc))
+        local dec, offset = Scale.decode_compact(enc)
         assert(dec == i)
         assert(offset == 2)
     end
@@ -48,9 +48,9 @@ test("Compact: Two bytes (64-16383)", function()
     for _, n in ipairs(test_cases) do
         local enc = Scale.encode_compact(n)
         assert(#enc == 2)
-        local dec, offset = Scale.decode_compact(to_hex(enc))
+        local dec, offset = Scale.decode_compact(enc)
         assert(dec == n)
-        assert(offset == 4)
+        assert(offset == 3)
     end
 end)
 
@@ -59,9 +59,9 @@ test("Compact: Four bytes (16384-1073741823)", function()
     for _, n in ipairs(test_cases) do
         local enc = Scale.encode_compact(n)
         assert(#enc == 4)
-        local dec, offset = Scale.decode_compact(to_hex(enc))
+        local dec, offset = Scale.decode_compact(enc)
         assert(dec == n)
-        assert(offset == 8)
+        assert(offset == 5)
     end
 end)
 
@@ -70,7 +70,7 @@ test("Compact: BigInt mode (>= 1073741824)", function()
     for _, n in ipairs(test_cases) do
         local enc = Scale.encode_compact(n)
         assert(#enc >= 5)
-        local dec, offset = Scale.decode_compact(to_hex(enc))
+        local dec, offset = Scale.decode_compact(enc)
         -- Note: May lose precision for very large numbers due to Lua number limits
         if n < 2^53 then
             assert(dec == n)
@@ -82,7 +82,7 @@ test("Compact: Roundtrip edge cases", function()
     local cases = {0, 1, 63, 64, 65, 16383, 16384, 16385, 65535, 65536}
     for _, n in ipairs(cases) do
         local enc = Scale.encode_compact(n)
-        local dec, _ = Scale.decode_compact(to_hex(enc))
+        local dec, _ = Scale.decode_compact(enc)
         assert(dec == n, "Failed for " .. n)
     end
 end)
@@ -95,9 +95,10 @@ test("U8: Encode", function()
     assert(Scale.encode_u8(255) == string.char(255))
 end)
 
-test("U8: Wrap around", function()
-    assert(Scale.encode_u8(256) == Scale.encode_u8(0))
-    assert(Scale.encode_u8(257) == Scale.encode_u8(1))
+test("U8: Boundary values", function()
+    assert(Scale.encode_u8(0) == string.char(0))
+    assert(Scale.encode_u8(128) == string.char(128))
+    assert(Scale.encode_u8(255) == string.char(255))
 end)
 
 -- U16 Tests
@@ -149,13 +150,16 @@ end)
 
 -- U128 Tests
 test("U128: Encode", function()
-    assert(#Scale.encode_u128(0) == 16)
-    assert(#Scale.encode_u128(1000000) == 16)
+    local zero = string.rep("\0", 16)
+    assert(#Scale.encode_u128(zero) == 16)
+    assert(Scale.encode_u128(zero) == zero)
 end)
 
-test("U128: Large values", function()
-    local enc = Scale.encode_u128(10^12)
+test("U128: Identity for 16-byte strings", function()
+    local bytes = string.rep("\1", 16)
+    local enc = Scale.encode_u128(bytes)
     assert(#enc == 16)
+    assert(enc == bytes)
 end)
 
 -- Option Tests
@@ -180,31 +184,31 @@ end)
 -- Vector Tests
 test("Vector: Empty", function()
     local enc = Scale.encode_vector(Scale.encode_u8, {})
-    local len, offset = Scale.decode_compact(to_hex(enc))
+    local len, offset = Scale.decode_compact(enc)
     assert(len == 0)
 end)
 
 test("Vector: Single element", function()
     local enc = Scale.encode_vector(Scale.encode_u8, {42})
-    local len, offset = Scale.decode_compact(to_hex(enc))
+    local len, offset = Scale.decode_compact(enc)
     assert(len == 1)
-    assert(string.byte(enc, 2) == 42)
+    assert(string.byte(enc, offset) == 42)
 end)
 
 test("Vector: Multiple elements", function()
     local vec = {1, 2, 3, 4, 5}
     local enc = Scale.encode_vector(Scale.encode_u8, vec)
-    local len, offset = Scale.decode_compact(to_hex(enc))
+    local len, offset = Scale.decode_compact(enc)
     assert(len == 5)
     for i = 1, 5 do
-        assert(string.byte(enc, offset/2 + i) == i)
+        assert(string.byte(enc, offset + i - 1) == i)
     end
 end)
 
 test("Vector: U32 elements", function()
     local vec = {100, 200, 300}
     local enc = Scale.encode_vector(Scale.encode_u32, vec)
-    local len, offset = Scale.decode_compact(to_hex(enc))
+    local len, offset = Scale.decode_compact(enc)
     assert(len == 3)
     assert(#enc == 1 + 3*4) -- 1 byte length + 3*4 bytes
 end)

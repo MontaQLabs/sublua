@@ -2,8 +2,8 @@
 -- Comprehensive tests for the C crypto module
 
 -- Fix paths to work from test directory or root
-package.cpath = package.cpath .. ";../c_src/?.so;./c_src/?.so"
-package.path = package.path .. ";../lua/?.lua;../lua/?/init.lua;./lua/?.lua;./lua/?/init.lua"
+package.cpath = "../sublua/?.so;./sublua/?.so;" .. package.cpath
+package.path = "../?.lua;../?/init.lua;./?.lua;./?/init.lua;" .. package.path
 
 local crypto = require("polkadot_crypto")
 

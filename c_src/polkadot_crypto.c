@@ -11,8 +11,12 @@
 #include <stdlib.h>
 
 #include "vendor/monocypher.h"
+#include "vendor/tweetnacl.h"
 #define XXH_INLINE_ALL
 #include "vendor/xxhash.h"
+
+/* From tweetnacl.c — seed-based Ed25519 keypair */
+extern void tweetnacl_keypair_from_seed(unsigned char *pk, unsigned char *sk, const unsigned char *seed);
 
 /* --- Helper Macros --- */
 #if LUA_VERSION_NUM < 502
@@ -69,7 +73,7 @@ static int l_twox64(lua_State *L) {
     return 1;
 }
 
-/* --- Ed25519 (Monocypher) --- */
+/* --- Ed25519 (TweetNaCl — standard SHA-512, RFC 8032) --- */
 
 static int l_ed25519_keypair_from_seed(lua_State *L) {
     size_t seed_len;
@@ -79,18 +83,11 @@ static int l_ed25519_keypair_from_seed(lua_State *L) {
         return luaL_error(L, "Seed must be 32 bytes");
     }
     
-    uint8_t pub[32];
-    uint8_t priv[64];
-    uint8_t seed_buf[32];
-    memcpy(seed_buf, seed, 32);
+    unsigned char pub[32];
+    unsigned char sk[64];
+    tweetnacl_keypair_from_seed(pub, sk, (const unsigned char*)seed);
     
-    // crypto_eddsa_key_pair(secret_key, public_key, seed)
-    crypto_eddsa_key_pair(priv, pub, seed_buf);
-    
-    // Clean up stack
-    crypto_wipe(priv, 64);
-    crypto_wipe(seed_buf, 32);
-    
+    memset(sk, 0, 64);
     lua_pushlstring(L, (const char*)pub, 32);
     return 1;
 }
@@ -102,23 +99,23 @@ static int l_ed25519_sign(lua_State *L) {
     
     if (seed_len != 32) return luaL_error(L, "Seed must be 32 bytes");
     
-    uint8_t sig[64];
-    uint8_t pub[32];
-    uint8_t priv[64];
-    uint8_t seed_buf[32];
-    memcpy(seed_buf, seed, 32);
+    /* Build TweetNaCl secret key: seed(32) || pubkey(32) */
+    unsigned char pub[32];
+    unsigned char sk[64];
+    tweetnacl_keypair_from_seed(pub, sk, (const unsigned char*)seed);
     
-    // Expand seed to keypair
-    crypto_eddsa_key_pair(priv, pub, seed_buf);
+    /* crypto_sign outputs signature(64) || message */
+    unsigned long long smlen;
+    unsigned char *sm = (unsigned char*)malloc(msg_len + 64);
+    if (!sm) return luaL_error(L, "out of memory");
     
-    // Sign
-    crypto_eddsa_sign(sig, priv, (const uint8_t*)msg, msg_len);
+    crypto_sign(sm, &smlen, (const unsigned char*)msg, msg_len, sk);
     
-    // Clean up
-    crypto_wipe(priv, 64);
-    crypto_wipe(seed_buf, 32);
+    /* First 64 bytes of sm are the signature */
+    lua_pushlstring(L, (const char*)sm, 64);
     
-    lua_pushlstring(L, (const char*)sig, 64);
+    free(sm);
+    memset(sk, 0, 64);
     return 1;
 }
 
@@ -131,7 +128,19 @@ static int l_ed25519_verify(lua_State *L) {
     if (pub_len != 32) return luaL_error(L, "Public key must be 32 bytes");
     if (sig_len != 64) return luaL_error(L, "Signature must be 64 bytes");
     
-    int valid = crypto_eddsa_check((const uint8_t*)sig, (const uint8_t*)pub, (const uint8_t*)msg, msg_len);
+    /* crypto_sign_open expects sm = signature(64) || message */
+    unsigned char *sm = (unsigned char*)malloc(msg_len + 64);
+    unsigned char *m  = (unsigned char*)malloc(msg_len + 64);
+    if (!sm || !m) { free(sm); free(m); return luaL_error(L, "out of memory"); }
+    
+    memcpy(sm, sig, 64);
+    memcpy(sm + 64, msg, msg_len);
+    
+    unsigned long long mlen;
+    int valid = crypto_sign_open(m, &mlen, sm, msg_len + 64, (const unsigned char*)pub);
+    
+    free(sm);
+    free(m);
     
     lua_pushboolean(L, valid == 0);
     return 1;
@@ -318,9 +327,9 @@ static const struct luaL_Reg polkadot_crypto [] = {
     {NULL, NULL}
 };
 
-int luaopen_polkadot_crypto(lua_State *L) {
+static int polkadot_crypto_init(lua_State *L) {
     // Add pure-C implementation notice
-    lua_pushstring(L, "Pure C (Monocypher + xxHash)");
+    lua_pushstring(L, "Pure C (Monocypher + TweetNaCl + xxHash)");
     lua_setglobal(L, "_POLKADOT_CRYPTO_IMPL");
     
     #if LUA_VERSION_NUM >= 502
@@ -329,4 +338,14 @@ int luaopen_polkadot_crypto(lua_State *L) {
         luaL_register(L, "polkadot_crypto", polkadot_crypto);
     #endif
     return 1;
+}
+
+// Entry point for: require("polkadot_crypto")
+int luaopen_polkadot_crypto(lua_State *L) {
+    return polkadot_crypto_init(L);
+}
+
+// Entry point for: require("sublua.polkadot_crypto") (LuaRocks install)
+int luaopen_sublua_polkadot_crypto(lua_State *L) {
+    return polkadot_crypto_init(L);
 }
